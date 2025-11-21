@@ -1,1601 +1,1666 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DANTAO</title>
-  <style>
-    /* 🎨 视觉设计 - 色彩方案 */
-    body {
-      margin: 0;
-      background-color: #141428; /* 深蓝黑背景 */
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-      user-select: none;
-    }
-    canvas {
-      border: 3px solid #FFD700; /* 主题色: 金色 */
-      display: block;
-      border-radius: 12px;
-      box-shadow: 0 0 40px rgba(255, 215, 0, 0.2);
-      background-color: #141428;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DANTAO - 无尽Wave增强版</title>
+    <style>
+        /* 🎨 视觉设计 - 色彩方案 */
+        body {
+            margin: 0;
+            background-color: #141428; /* 深蓝黑背景 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            user-select: none;
+        }
+        canvas {
+            border: 3px solid #FFD700; /* 主题色: 金色 */
+            display: block;
+            border-radius: 12px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.2);
+            background-color: #141428;
+        }
 
-    /* 鼠标样式，提示玩家可以射击/互动 */
-    canvas:active {
-      cursor: crosshair;
-    }
-  </style>
+        /* 鼠标样式，提示玩家可以射击/互动 */
+        canvas:active {
+            cursor: crosshair;
+        }
+
+        /* 音乐控制按钮样式 */
+        #music-control {
+            position: absolute;
+            bottom: 20px;
+            right: calc(50% - 700px + 20px); /* 定位到画布右下角 */
+            background-color: rgba(255, 215, 0, 0.9);
+            color: #141428;
+            border: 2px solid #FFD700;
+            border-radius: 8px;
+            padding: 10px 15px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        #music-control:hover {
+            background-color: #FFF;
+        }
+
+        #music-control:active {
+            transform: scale(0.98);
+        }
+    </style>
 </head>
 <body>
-<canvas id="gameCanvas" width="1400" height="900"></canvas>
-
-<script>
-  // --------------------------------------------------------
-  // 📁 代码结构：DANTAO - 无尽Wave增强版 (单文件 JS 实现)
-  // --------------------------------------------------------
-
-  // === 全局常量 ===
-  const CANVAS_WIDTH = 1400;
-  const CANVAS_HEIGHT = 900;
-  const FPS = 60;
-  const BACKGROUND_COLOR = 'rgb(20, 20, 40)';
-  const GRID_COLOR = 'rgb(40, 40, 60)';
-  const SHOCKWAVE_COOLDOWN = 10.0; // E键技能冷却时间 (秒)
-
-  // 状态机
-  const GameState = {
-    MENU: 'menu',
-    GAME: 'game',
-    LEVEL_UP: 'level_up',
-    GAME_OVER: 'game_over'
-  };
-
-  // 皮肤颜色
-  const SkinColors = {
-    default: 'rgb(0, 255, 0)',
-    blue: 'rgb(0, 100, 255)',
-    red: 'rgb(255, 50, 50)',
-    gold: 'rgb(255, 215, 0)'
-  };
-
-  // --------------------------------------------------------
-  // 1. Data/PlayerData.js - 数据持久化
-  // --------------------------------------------------------
-  class PlayerData {
-    constructor() {
-      this.coins = 0;
-      this.ownedSkins = ['default'];
-      this.currentSkin = 'default';
-      this.highScore = 0;
-      this.loadData();
-    }
-
-    loadData() {
-      try {
-        const dataString = localStorage.getItem('dantao_player_data');
-        if (dataString) {
-          const data = JSON.parse(dataString);
-          this.coins = data.coins || 0;
-          this.ownedSkins = data.owned_skins || ['default'];
-          this.currentSkin = data.current_skin || 'default';
-          this.highScore = data.highScore || 0;
-        }
-      } catch (e) {
-        console.error("加载数据失败，使用默认值:", e);
-      }
-    }
-
-    saveData() {
-      const data = {
-        coins: this.coins,
-        owned_skins: this.ownedSkins,
-        current_skin: this.currentSkin,
-        highScore: this.highScore
-      };
-      localStorage.setItem('dantao_player_data', JSON.stringify(data));
-    }
-
-    addCoins(amount) {
-      this.coins += amount;
-      this.saveData();
-    }
-
-    updateHighScore(score) {
-      if (score > this.highScore) {
-        this.highScore = score;
-        this.saveData();
-      }
-    }
-
-    getSkinColor() {
-      return SkinColors[this.currentSkin] || SkinColors.default;
-    }
-  }
-
-  // --------------------------------------------------------
-  // 2. Systems/CollisionManager.js - 碰撞系统
-  // --------------------------------------------------------
-  class CollisionManager {
-    static checkCircleCollision(e1, e2) {
-      const dx = e1.x - e2.x;
-      const dy = e1.y - e2.y;
-      const distanceSq = dx * dx + dy * dy;
-      const radiiSum = e1.radius + e2.radius;
-      return distanceSq < radiiSum * radiiSum;
-    }
-
-    static checkAndResolve(entity, targetRect) {
-      const radius = entity.radius || (entity.width ? entity.width / 2 : 30);
-
-      const eRect = {
-        left: entity.x - radius,
-        right: entity.x + radius,
-        top: entity.y - radius,
-        bottom: entity.y + radius
-      };
-
-      const tRect = targetRect;
-
-      const overlapX = Math.max(0, Math.min(eRect.right, tRect.x + tRect.width) - Math.max(eRect.left, tRect.x));
-      const overlapY = Math.max(0, Math.min(eRect.bottom, tRect.y + tRect.height) - Math.max(eRect.top, tRect.y));
-
-      if (overlapX > 0 && overlapY > 0) {
-        if (overlapX < overlapY) {
-          if (eRect.left < tRect.x) {
-            entity.x -= overlapX;
-          } else {
-            entity.x += overlapX;
-          }
-        } else {
-          if (eRect.top < tRect.y) {
-            entity.y -= overlapY;
-          } else {
-            entity.y += overlapY;
-          }
-        }
-        return true;
-      }
-      return false;
-    }
-  }
-
-  // --------------------------------------------------------
-  // 3. Systems/Camera.js - 摄像机系统
-  // --------------------------------------------------------
-  class Camera {
-    constructor(width, height) {
-      this.width = width;
-      this.height = height;
-      this.x = 0;
-      this.y = 0;
-      this.smoothness = 0.08;
-    }
-
-    update(target, dt) {
-      const targetX = target.x - this.width / 2;
-      const targetY = target.y - this.height / 2;
-
-      this.x += (targetX - this.x) * this.smoothness;
-      this.y += (targetY - this.y) * this.smoothness;
-    }
-
-    worldToScreen(worldX, worldY) {
-      return {
-        x: worldX - this.x,
-        y: worldY - this.y
-      };
-    }
-
-    getViewport() {
-      const inflate = 200;
-      return {
-        left: this.x - inflate,
-        top: this.y - inflate,
-        right: this.x + this.width + inflate,
-        bottom: this.y + this.height + inflate
-      };
-    }
-  }
-
-  // --------------------------------------------------------
-  // 4. Systems/RNG.js (Helper) & InfiniteWorld.js - 世界生成
-  // --------------------------------------------------------
-
-  class SeededRNG {
-    constructor(seed) {
-      this.seed = seed % 2147483647;
-      if (this.seed <= 0) this.seed += 2147483646;
-    }
-
-    next() {
-      this.seed = (this.seed * 16807) % 2147483647;
-      return (this.seed - 1) / 2147483646;
-    }
-
-    randFloat(min = 0, max = 1) {
-      return min + this.next() * (max - min);
-    }
-
-    randInt(min, max) {
-      return Math.floor(this.randFloat(min, max + 1));
-    }
-
-    choice(arr) {
-      return arr[this.randInt(0, arr.length - 1)];
-    }
-  }
-
-  class Building {
-    constructor(x, y, width, height, type) {
-      this.x = x;
-      this.y = y;
-      this.width = width;
-      this.height = height;
-      this.type = type;
-      this.health = type === 'wood' ? 50 : 150;
-      this.maxHealth = this.health;
-      this.isHazard = type === 'spike' || type === 'fire';
-      this.isDestroyable = !this.isHazard;
-      this.damage = this.isHazard ? (type === 'spike' ? 15 : 20) : 0;
-
-      this.color = this._getColor(type);
-      this.isAlive = true;
-    }
-
-    _getColor(type) {
-      switch (type) {
-        case 'wood': return 'rgb(139, 69, 19)';
-        case 'stone': return 'rgb(100, 100, 100)';
-        case 'spike': return 'rgb(150, 50, 50)';
-        case 'fire': return 'rgb(255, 100, 0)';
-        default: return 'gray';
-      }
-    }
-
-    takeDamage(damage) {
-      if (this.isDestroyable) {
-        this.health -= damage;
-        if (this.health <= 0) {
-          this.isAlive = false;
-          return true;
-        }
-      }
-      return false;
-    }
-
-    draw(ctx, offset) {
-      const screenPos = {
-        x: this.x - offset.x,
-        y: this.y - offset.y
-      };
-
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.fillRect(screenPos.x + 5, screenPos.y + 5, this.width, this.height);
-
-      ctx.fillStyle = this.color;
-      ctx.fillRect(screenPos.x, screenPos.y, this.width, this.height);
-
-      if (this.type === 'spike') {
-        ctx.fillStyle = 'black';
-        ctx.beginPath();
-        for (let i = 0; i < 5; i++) {
-          ctx.moveTo(screenPos.x + i * (this.width / 5), screenPos.y);
-          ctx.lineTo(screenPos.x + (i * (this.width / 5)) + (this.width / 10), screenPos.y - 10);
-          ctx.lineTo(screenPos.x + (i + 1) * (this.width / 5), screenPos.y);
-        }
-        ctx.fill();
-      }
-    }
-  }
-
-  class InfiniteWorld {
-    constructor() {
-      this.chunkSize = 1000;
-      this.chunks = new Map();
-      this.typeDistribution = [
-        { type: 'wood', prob: 0.40 },
-        { type: 'stone', prob: 0.30 },
-        { type: 'spike', prob: 0.15 },
-        { type: 'fire', prob: 0.15 }
-      ];
-    }
-
-    getChunkCoords(worldX, worldY) {
-      const chunkX = Math.floor(worldX / this.chunkSize);
-      const chunkY = Math.floor(worldY / this.chunkSize);
-      return { x: chunkX, y: chunkY };
-    }
-
-    getChunkKey(x, y) {
-      return `${x},${y}`;
-    }
-
-    getVisibleContent(player) {
-      const { x: pX, y: pY } = this.getChunkCoords(player.x, player.y);
-      const visibleBuildings = [];
-      const visibleChunkKeys = [];
-      const loadDistance = 2;
-
-      for (let i = -loadDistance; i <= loadDistance; i++) {
-        for (let j = -loadDistance; j <= loadDistance; j++) {
-          const chunkX = pX + i;
-          const chunkY = pY + j;
-          const key = this.getChunkKey(chunkX, chunkY);
-          visibleChunkKeys.push({ x: chunkX, y: chunkY });
-
-          if (!this.chunks.has(key)) {
-            this.generateChunk(chunkX, chunkY);
-          }
-
-          visibleBuildings.push(...this.chunks.get(key).buildings.filter(b => b.isAlive));
-        }
-      }
-
-      return {
-        buildings: visibleBuildings,
-        chunkKeys: visibleChunkKeys
-      };
-    }
-
-    generateChunk(chunkX, chunkY) {
-      const key = this.getChunkKey(chunkX, chunkY);
-      const seed = (chunkX * 10000 + chunkY) * 12345;
-      const rng = new SeededRNG(seed);
-
-      const buildings = [];
-      const numBuildings = rng.randInt(10, 25);
-
-      const originX = chunkX * this.chunkSize;
-      const originY = chunkY * this.chunkSize;
-      const padding = 50;
-
-      for (let i = 0; i < numBuildings; i++) {
-        const typeIndex = this._getWeightedRandomType(rng);
-        const type = this.typeDistribution[typeIndex].type;
-
-        const width = rng.randInt(60, 120);
-        const height = rng.randInt(60, 120);
-
-        const x = originX + rng.randInt(padding, this.chunkSize - width - padding);
-        const y = originY + rng.randInt(padding, this.chunkSize - height - padding);
-
-        buildings.push(new Building(x, y, width, height, type));
-      }
-
-      this.chunks.set(key, { buildings: buildings, enemies: [] });
-    }
-
-    _getWeightedRandomType(rng) {
-      const total = this.typeDistribution.reduce((sum, item) => sum + item.prob, 0);
-      let rand = rng.randFloat(0, total);
-
-      for (let i = 0; i < this.typeDistribution.length; i++) {
-        rand -= this.typeDistribution[i].prob;
-        if (rand <= 0) {
-          return i;
-        }
-      }
-      return 0;
-    }
-
-    getChunkWorldBounds(chunkX, chunkY) {
-      const originX = chunkX * this.chunkSize;
-      const originY = chunkY * this.chunkSize;
-      return {
-        x: originX,
-        y: originY,
-        width: this.chunkSize,
-        height: this.chunkSize
-      };
-    }
-  }
-
-
-  // --------------------------------------------------------
-  // 5. Entities/Player.js - 玩家实体
-  // --------------------------------------------------------
-  class Player {
-    constructor(x, y, data) {
-      this.x = x;
-      this.y = y;
-      this.radius = 30;
-      this.data = data;
-      this.level = 1;
-      this.score = 0;
-
-      this.maxHealth = 100;
-      this.health = 100;
-      this.baseSpeed = 250;
-      this.baseDamage = 15;
-
-      this.damageMultiplier = 1.0;
-      this.speedMultiplier = 1.0;
-
-      this.isAlive = true;
-      this.isInvincible = false;
-      this.invincibilityTimer = 0;
-      this.invincibilityDuration = 0.5;
-      this.lastAttackTime = 0;
-      this.attackCooldown = 0.25;
-
-      this.shockwaveCooldown = 0;
-      this.shockwaveMaxCooldown = SHOCKWAVE_COOLDOWN;
-      this.shockwaveRadius = 500;
-      this.shockwaveDamage = 100;
-      this.isShockwaving = false;
-      this.shockwaveTimer = 0.0;
-      this.shockwaveDuration = 0.2;
-
-      this.exp = 0;
-      this.expToNextLevel = 100;
-      this.expGrowthRate = 1.4;
-
-      this.aimAngle = 0;
-    }
-
-    useShockwave(currentTime) {
-      if (this.shockwaveCooldown <= 0) {
-        this.shockwaveCooldown = this.shockwaveMaxCooldown;
-        this.isShockwaving = true;
-        this.shockwaveTimer = this.shockwaveDuration;
-        return true;
-      }
-      return false;
-    }
-
-    gainExp(amount) {
-      this.exp += amount;
-      while (this.exp >= this.expToNextLevel) {
-        this.levelUp();
-      }
-    }
-
-    levelUp() {
-      this.level += 1;
-      this.exp -= this.expToNextLevel;
-      this.expToNextLevel = Math.floor(100 * (this.expGrowthRate ** this.level));
-
-      this.health += this.maxHealth * 0.3;
-      if (this.health > this.maxHealth) this.health = this.maxHealth;
-
-      gameInstance.setState(GameState.LEVEL_UP);
-    }
-
-    applyUpgrade(type) {
-      switch(type) {
-        case 'damage':
-          this.damageMultiplier += 0.25;
-          break;
-        case 'health':
-          this.maxHealth += 30;
-          this.health += 30;
-          break;
-        case 'speed':
-          this.speedMultiplier += 0.15;
-          break;
-      }
-      gameInstance.setState(GameState.GAME);
-    }
-
-    takeDamage(damage) {
-      if (!this.isAlive || this.isInvincible) return false;
-
-      this.health -= damage;
-
-      this.isInvincible = true;
-      this.invincibilityTimer = this.invincibilityDuration;
-
-      if (this.health <= 0) {
-        this.health = 0;
-        this.isAlive = false;
-        gameInstance.setState(GameState.GAME_OVER);
-      }
-      return true;
-    }
-
-    attack(currentTime, targetX, targetY) {
-      if (currentTime >= this.lastAttackTime + this.attackCooldown) {
-        this.lastAttackTime = currentTime;
-
-        const finalDamage = this.baseDamage * this.damageMultiplier;
-        const speed = 600;
-
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-        this.aimAngle = Math.atan2(dy, dx);
-
-        return new Projectile(this.x, this.y, this.aimAngle, speed, finalDamage, this, 'player');
-      }
-      return null;
-    }
-
-    handleInput(input, dt) {
-      let velX = 0;
-      let velY = 0;
-      const currentSpeed = this.baseSpeed * this.speedMultiplier;
-
-      if (input.keys['w']) velY -= 1;
-      if (input.keys['s']) velY += 1;
-      if (input.keys['a']) velX -= 1;
-      if (input.keys['d']) velX += 1;
-      if (input.keys['e'] && gameInstance.state === GameState.GAME) {
-        this.useShockwave(gameInstance.currentTime);
-      }
-
-      if (velX !== 0 || velY !== 0) {
-        const magnitude = Math.sqrt(velX * velX + velY * velY);
-        velX /= magnitude;
-        velY /= magnitude;
-      }
-
-      this.x += velX * currentSpeed * dt;
-      this.y += velY * currentSpeed * dt;
-
-      const dx = input.mouse.worldX - this.x;
-      const dy = input.mouse.worldY - this.y;
-      this.aimAngle = Math.atan2(dy, dx);
-    }
-
-    update(dt) {
-      this.score += 1 * dt;
-
-      if (this.isInvincible) {
-        this.invincibilityTimer -= dt;
-        if (this.invincibilityTimer <= 0) {
-          this.isInvincible = false;
-        }
-      }
-
-      if (this.shockwaveCooldown > 0) {
-        this.shockwaveCooldown -= dt;
-      }
-
-      if (this.isShockwaving) {
-        this.shockwaveTimer -= dt;
-        if (this.shockwaveTimer <= 0) {
-          this.isShockwaving = false;
-        }
-      }
-
-      gameInstance.buildings.forEach(b => {
-        const trapContact = {
-          x: b.x + b.width / 2,
-          y: b.y + b.height / 2,
-          radius: Math.min(b.width, b.height) / 2
+    <canvas id="gameCanvas" width="1400" height="900"></canvas>
+    
+    <!-- 音频元素：设置 autoplay 和 loop -->
+    <!-- !!! 警告：请替换 src 中的链接为您的 MP3 文件的公共 URL !!! -->
+    <audio id="backgroundMusic" loop>
+        <source src="https://example.com/your-awesome-game-music.mp3" type="audio/mp3">
+        <!-- 可以在这里添加 OGG 或 WAV 格式的备用源 -->
+        您的浏览器不支持音频播放。
+    </audio>
+
+    <button id="music-control">
+        🔊 音乐: 开启
+    </button>
+
+    <script>
+        // --------------------------------------------------------
+        // 📁 代码结构：DANTAO - 无尽Wave增强版 (单文件 JS 实现)
+        // --------------------------------------------------------
+
+        // === 全局常量 ===
+        const CANVAS_WIDTH = 1400;
+        const CANVAS_HEIGHT = 900;
+        const FPS = 60;
+        const BACKGROUND_COLOR = 'rgb(20, 20, 40)';
+        const GRID_COLOR = 'rgb(40, 40, 60)';
+        const SHOCKWAVE_COOLDOWN = 10.0; // E键技能冷却时间 (秒)
+
+        // 状态机
+        const GameState = {
+            MENU: 'menu',
+            GAME: 'game',
+            LEVEL_UP: 'level_up',
+            GAME_OVER: 'game_over'
         };
-        if (b.isHazard && CollisionManager.checkCircleCollision(this, trapContact)) {
-          this.takeDamage(b.damage * dt);
-        }
-      });
-    }
 
-    draw(ctx, offset) {
-      const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
-
-      if (this.isShockwaving) {
-        const progress = 1 - (this.shockwaveTimer / this.shockwaveDuration);
-        const currentRadius = progress * this.shockwaveRadius;
-
-        ctx.beginPath();
-        ctx.arc(screenPos.x, screenPos.y, currentRadius, 0, Math.PI * 2);
-
-        const alpha = 0.5 - progress * 0.5;
-        ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`;
-        ctx.lineWidth = 15 + (1 - progress) * 20;
-        ctx.stroke();
-      }
-
-      const isFlashing = this.isInvincible && (Math.floor(this.invincibilityTimer * 10) % 2 === 0);
-
-      ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = isFlashing ? 'white' : this.data.getSkinColor();
-      ctx.fill();
-
-      ctx.strokeStyle = 'black';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      const eyeRadius = 12;
-      const pupilRadius = 6;
-      const eyeOffset = 10;
-
-      const eyeX = screenPos.x + Math.cos(this.aimAngle) * (this.radius - eyeRadius);
-      const eyeY = screenPos.y + Math.sin(this.aimAngle) * (this.radius - eyeRadius);
-
-      const pupilX = eyeX + Math.cos(this.aimAngle) * eyeOffset;
-      const pupilY = eyeY + Math.sin(this.aimAngle) * eyeOffset;
-
-      ctx.beginPath();
-      ctx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2);
-      ctx.fillStyle = 'white';
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(pupilX, pupilY, pupilRadius, 0, Math.PI * 2);
-      ctx.fillStyle = 'black';
-      ctx.fill();
-    }
-  }
-
-  // --------------------------------------------------------
-  // 6. Entities/Projectile.js - 投射物系统
-  // --------------------------------------------------------
-  class Projectile {
-    constructor(x, y, angle, speed, damage, owner, type) {
-      this.x = x;
-      this.y = y;
-      this.angle = angle;
-      this.speed = speed;
-      this.damage = damage;
-      this.owner = owner;
-      this.type = type;
-      this.radius = 8;
-      this.velX = Math.cos(angle) * speed;
-      this.velY = Math.sin(angle) * speed;
-      this.lifetime = 3.0;
-      this.isAlive = true;
-
-      this.color = type === 'player' ? 'rgb(255, 215, 0)' : 'rgb(255, 50, 50)';
-    }
-
-    update(dt) {
-      this.x += this.velX * dt;
-      this.y += this.velY * dt;
-      this.lifetime -= dt;
-
-      if (this.lifetime <= 0) {
-        this.isAlive = false;
-      }
-    }
-
-    draw(ctx, offset) {
-      const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
-
-      ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, this.radius * 2, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${this.color.slice(4, -1)}, 0.2)`;
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = this.color;
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, this.radius / 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgb(255, 255, 200)';
-      ctx.fill();
-    }
-  }
-
-  // --------------------------------------------------------
-  // 7. Entities/Enemy.js - 敌人系统
-  // --------------------------------------------------------
-
-  class EnemyBase {
-    constructor() {
-      this.isAlive = true;
-      this.knockbackVelX = 0;
-      this.knockbackVelY = 0;
-    }
-
-    drawHealthBar(ctx, screenPos) {
-      const barWidth = 40;
-      const barHeight = 5;
-      const healthRatio = this.health / this.maxHealth;
-
-      ctx.fillStyle = 'rgb(100, 30, 30)';
-      ctx.fillRect(screenPos.x - barWidth / 2, screenPos.y - this.radius - 15, barWidth, barHeight);
-
-      ctx.fillStyle = healthRatio > 0.6 ? 'rgb(50, 255, 50)' : 'rgb(255, 200, 50)';
-      ctx.fillRect(screenPos.x - barWidth / 2, screenPos.y - this.radius - 15, barWidth * healthRatio, barHeight);
-    }
-
-    applyKnockback(angle, force) {
-      this.knockbackVelX = Math.cos(angle) * force;
-      this.knockbackVelY = Math.sin(angle) * force;
-    }
-
-    updateMovement(dt, speed) {
-      this.x += this.knockbackVelX * dt;
-      this.y += this.knockbackVelY * dt;
-
-      const decayRate = 0.9;
-      this.knockbackVelX *= decayRate;
-      this.knockbackVelY *= decayRate;
-
-      if (Math.abs(this.knockbackVelX) < 10) this.knockbackVelX = 0;
-      if (Math.abs(this.knockbackVelY) < 10) this.knockbackVelY = 0;
-    }
-  }
-
-  /** 普通射手敌人 */
-  class NormalShooter extends EnemyBase {
-    constructor(x, y) {
-      super();
-      this.x = x;
-      this.y = y;
-      this.radius = 25;
-      this.maxHealth = 40;
-      this.health = 40;
-      this.speed = 100;
-      this.damage = 8;
-      this.expValue = 15;
-      this.color = 'rgb(255, 100, 100)';
-      this.attackCooldown = 2.0;
-      this.lastAttackTime = 0;
-      this.attackRange = 350;
-      this.alertRange = 500;
-    }
-
-    takeDamage(damage) {
-      this.health -= damage;
-      if (this.health <= 0) {
-        this.isAlive = false;
-        gameInstance.player.gainExp(this.expValue);
-        gameInstance.player.score += this.expValue;
-        gameInstance.enemiesKilledThisWave += 1; // 计入 WAVE 击杀
-        return true;
-      }
-      return false;
-    }
-
-    update(dt, currentTime, target) {
-      if (!this.isAlive) return;
-
-      this.updateMovement(dt, this.speed);
-      if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
-
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx);
-
-      const speed = this.speed;
-
-      if (distance < this.alertRange) {
-        let moveX = Math.cos(angle);
-        let moveY = Math.sin(angle);
-
-        if (distance < 200) {
-          moveX *= -1;
-          moveY *= -1;
-        } else if (distance > 300) {
-        } else {
-          moveX = 0;
-          moveY = 0;
-        }
-
-        this.x += moveX * speed * dt;
-        this.y += moveY * speed * dt;
-
-        if (distance < this.attackRange && currentTime >= this.lastAttackTime + this.attackCooldown) {
-          this.lastAttackTime = currentTime;
-          this.shoot(angle);
-        }
-      }
-    }
-
-    shoot(angle) {
-      const speed = 400;
-      const damage = this.damage;
-      const projectile = new Projectile(this.x, this.y, angle, speed, damage, this, 'enemy');
-      gameInstance.projectiles.push(projectile);
-    }
-
-    draw(ctx, offset) {
-      const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
-
-      ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = this.color;
-      ctx.fill();
-      ctx.strokeStyle = 'black';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      this.drawHealthBar(ctx, screenPos);
-    }
-  }
-
-  /** 快速近战敌人 */
-  class FastMeleeEnemy extends EnemyBase {
-    constructor(x, y) {
-      super();
-      this.x = x;
-      this.y = y;
-      this.width = 30;
-      this.height = 30;
-      this.radius = 20;
-      this.maxHealth = 20;
-      this.health = 20;
-      this.speed = 350;
-      this.damage = 5;
-      this.expValue = 8;
-      this.color = 'rgb(50, 255, 255)';
-    }
-
-    takeDamage(damage) {
-      this.health -= damage;
-      if (this.health <= 0) {
-        this.isAlive = false;
-        gameInstance.player.gainExp(this.expValue);
-        gameInstance.player.score += this.expValue;
-        gameInstance.enemiesKilledThisWave += 1; // 计入 WAVE 击杀
-        return true;
-      }
-      return false;
-    }
-
-    update(dt, currentTime, target) {
-      if (!this.isAlive) return;
-
-      this.updateMovement(dt, this.speed);
-      if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
-
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const angle = Math.atan2(dy, dx);
-
-      this.x += Math.cos(angle) * this.speed * dt;
-      this.y += Math.sin(angle) * this.speed * dt;
-    }
-
-    draw(ctx, offset) {
-      const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
-      const halfW = this.width / 2;
-      const halfH = this.height / 2;
-
-      ctx.fillStyle = this.color;
-      ctx.fillRect(screenPos.x - halfW, screenPos.y - halfH, this.width, this.height);
-      ctx.strokeStyle = 'black';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(screenPos.x - halfW, screenPos.y - halfH, this.width, this.height);
-
-      this.drawHealthBar(ctx, screenPos);
-    }
-  }
-
-  /** Boss 敌人 (Wave 主要目标之一) */
-  class BossEnemy extends EnemyBase {
-    constructor(x, y) {
-      super();
-      this.x = x;
-      this.y = y;
-      this.radius = 70;
-      // Boss 血量随 Wave 提升
-      this.maxHealth = 500 + gameInstance.wave * 200;
-      this.health = this.maxHealth;
-      this.speed = 50;
-      this.damage = 25;
-      this.expValue = 300;
-      this.color = 'rgb(100, 50, 150)';
-      this.attackCooldown = 5.0;
-      this.lastAttackTime = 0;
-      this.numProjectiles = 12;
-    }
-
-    takeDamage(damage) {
-      this.health -= damage;
-      if (this.health <= 0) {
-        this.isAlive = false;
-        gameInstance.player.gainExp(this.expValue);
-        gameInstance.player.score += this.expValue * 5;
-        // Boss 死亡不计入 enemiesKilledThisWave，但其死亡是 Wave 结束的必要条件。
-        return true;
-      }
-      return false;
-    }
-
-    update(dt, currentTime, target) {
-      if (!this.isAlive) return;
-
-      this.updateMovement(dt, this.speed);
-      if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
-
-      const dx = target.x - this.x;
-      const dy = target.y - this.y;
-      const angle = Math.atan2(dy, dx);
-
-      this.x += Math.cos(angle) * this.speed * dt;
-      this.y += Math.sin(angle) * this.speed * dt;
-
-      if (currentTime >= this.lastAttackTime + this.attackCooldown) {
-        this.lastAttackTime = currentTime;
-        this.shootRadial();
-      }
-    }
-
-    shootRadial() {
-      const speed = 300;
-      const damage = this.damage;
-      const projectiles = [];
-
-      for (let i = 0; i < this.numProjectiles; i++) {
-        const angle = (i / this.numProjectiles) * Math.PI * 2;
-        projectiles.push(new Projectile(this.x, this.y, angle, speed, damage, this, 'enemy'));
-      }
-      gameInstance.projectiles.push(...projectiles);
-    }
-
-    draw(ctx, offset) {
-      const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
-
-      ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = this.color;
-      ctx.fill();
-      ctx.strokeStyle = '#FFD700';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-
-      ctx.fillStyle = '#FFD700';
-      const crownBaseY = screenPos.y - this.radius;
-
-      ctx.beginPath();
-      ctx.moveTo(screenPos.x - this.radius * 0.5, crownBaseY);
-      ctx.lineTo(screenPos.x + this.radius * 0.5, crownBaseY);
-
-      for(let i = -2; i <= 2; i++) {
-        const tipX = screenPos.x + i * (this.radius * 0.2);
-        const tipY = crownBaseY - 20;
-        ctx.lineTo(tipX, tipY);
-        ctx.lineTo(tipX + (this.radius * 0.1), crownBaseY);
-      }
-      ctx.closePath();
-      ctx.fill();
-
-      this.drawHealthBar(ctx, screenPos);
-    }
-  }
-
-
-  // --------------------------------------------------------
-  // 8. Game - 游戏主控制层 (Wave 逻辑核心)
-  // --------------------------------------------------------
-
-  let gameInstance;
-
-  class Game {
-    constructor() {
-      this.canvas = document.getElementById('gameCanvas');
-      this.ctx = this.canvas.getContext('2d');
-
-      this.data = new PlayerData();
-      this.camera = new Camera(CANVAS_WIDTH, CANVAS_HEIGHT);
-      this.world = new InfiniteWorld();
-
-      this.state = GameState.MENU;
-      this.running = true;
-
-      this.player = null;
-      this.enemies = [];
-      this.projectiles = [];
-      this.buildings = [];
-
-      this.lastTime = 0;
-      this.currentTime = 0;
-
-      // --- Wave 核心属性 ---
-      this.wave = 1;
-      this.enemiesKilledThisWave = 0;
-      this.enemiesSpawnedThisWave = 0; // 新增: 本波已生成的敌人数量
-      this.enemiesToKillForNextWave = 100; // Wave 1 目标
-      this.isWaveTransition = false; // Wave 转换期间的暂停和提示
-      this.waveTransitionTimer = 0.0;
-      this.baseMaxEnemies = 40; // 基础最大敌人数量 (屏幕上的软上限)
-      this.enemySpawnTimer = 0; // 持续生成计时器
-
-      this.input = {
-        keys: {},
-        mouse: { x: 0, y: 0, worldX: 0, worldY: 0, leftClick: false }
-      };
-
-      this.setupEventListeners();
-      this.run();
-    }
-
-    setState(newState) {
-      this.state = newState;
-      if (newState === GameState.GAME) {
-        this.lastTime = performance.now();
-      }
-    }
-
-    setupEventListeners() {
-      document.addEventListener('keydown', (e) => {
-        const key = e.key.toLowerCase();
-        this.input.keys[key] = true;
-        this.handleGameStateInput(key);
-      });
-
-      document.addEventListener('keyup', (e) => {
-        const key = e.key.toLowerCase();
-        this.input.keys[key] = false;
-      });
-
-      this.canvas.addEventListener('mousedown', (e) => {
-        if (e.button === 0) this.input.mouse.leftClick = true;
-        if (this.state === GameState.MENU || this.state === GameState.GAME_OVER) {
-          this.handleMenuClick(this.input.mouse.x, this.input.mouse.y);
-        }
-      });
-
-      this.canvas.addEventListener('mouseup', (e) => {
-        if (e.button === 0) this.input.mouse.leftClick = false;
-      });
-
-      this.canvas.addEventListener('mousemove', (e) => {
-        const rect = this.canvas.getBoundingClientRect();
-        this.input.mouse.x = e.clientX - rect.left;
-        this.input.mouse.y = e.clientY - rect.top;
-
-        if (this.camera) {
-          this.input.mouse.worldX = this.input.mouse.x + this.camera.x;
-          this.input.mouse.worldY = this.input.mouse.y + this.camera.y;
-        }
-      });
-    }
-
-    handleGameStateInput(key) {
-      if (this.state === GameState.GAME_OVER) {
-        if (key === 'r') this.newGame();
-        if (key === 'escape') this.setState(GameState.MENU);
-      } else if (this.state === GameState.LEVEL_UP) {
-        if (key === '1' || key === '2' || key === '3') {
-          let upgradeType;
-          if (key === '1') upgradeType = 'damage';
-          else if (key === '2') upgradeType = 'health';
-          else if (key === '3') upgradeType = 'speed';
-
-          this.player.applyUpgrade(upgradeType);
-        }
-      }
-    }
-
-    handleMenuClick(mouseX, mouseY) {
-      if (this.state === GameState.MENU) {
-        const startButton = { x: 550, y: 400, w: 300, h: 60 };
-        if (mouseX > startButton.x && mouseX < startButton.x + startButton.w &&
-          mouseY > startButton.y && mouseY < startButton.y + startButton.h) {
-          this.newGame();
-        }
-      }
-    }
-
-    newGame() {
-      this.player = new Player(0, 0, this.data);
-      this.enemies = [];
-      this.projectiles = [];
-      this.buildings = [];
-      this.player.score = 0;
-
-      // 重置 Wave 状态
-      this.wave = 1;
-      this.enemiesKilledThisWave = 0;
-      this.enemiesSpawnedThisWave = 0;
-      this.isWaveTransition = false;
-      this.waveTransitionTimer = 0.0;
-      this.world.chunks.clear();
-
-      this.startNextWave(true); // 启动 Wave 1
-      this.setState(GameState.GAME);
-    }
-
-    startNextWave(isInitial = false) {
-      if (!isInitial) {
-        this.wave += 1;
-      }
-
-      // --- Wave 目标计算 ---
-      // Wave 1: 100, Wave 2: 150, Wave 3: 200, ...
-      this.enemiesToKillForNextWave = 100 + (this.wave - 1) * 50;
-      this.enemiesKilledThisWave = 0;
-      this.enemiesSpawnedThisWave = 0;
-
-      // Wave 转换提示
-      this.isWaveTransition = true;
-      this.waveTransitionTimer = 3.0; // 3秒过渡时间
-
-      // 1. 立即生成密集普通敌人 (达成目标的第一部分)
-      this.spawnWaveInitialEnemies(this.enemiesToKillForNextWave);
-
-      // 2. 只有 Wave 2 及以后才生成 Boss
-      if (this.wave >= 2) {
-        this.spawnWaveBosses(this.wave); // 生成 X 个 Boss
-      }
-    }
-
-    /**
-     * 在 Wave 开始时，在玩家周围一定范围内密集生成所有普通敌人目标。
-     * @param {number} count 要生成的敌人总数
-     */
-    spawnWaveInitialEnemies(count) {
-      const rng = new SeededRNG(performance.now());
-      const spawnRadiusMin = 300; // 避免出生点重叠
-      const spawnRadiusMax = 1500; // 初始散布范围
-
-      for (let i = 0; i < count; i++) {
-        const angle = rng.randFloat(0, Math.PI * 2);
-        const distance = rng.randFloat(spawnRadiusMin, spawnRadiusMax);
-
-        const spawnX = this.player.x + Math.cos(angle) * distance;
-        const spawnY = this.player.y + Math.sin(angle) * distance;
-
-        let enemy;
-        // 敌人类刷新权重: 50% Shooter, 50% Melee
-        const choice = rng.randFloat(0, 1);
-
-        if (choice < 0.5) {
-          enemy = new NormalShooter(spawnX, spawnY);
-        } else {
-          enemy = new FastMeleeEnemy(spawnX, spawnY);
-        }
-        this.enemies.push(enemy);
-        this.enemiesSpawnedThisWave += 1;
-      }
-    }
-
-    spawnWaveBosses(numBosses) {
-      const rng = new SeededRNG(performance.now() + 1); // Use slightly different seed
-      const spawnDistance = 2000; // 确保 Boss 足够远
-
-      for (let i = 0; i < numBosses; i++) {
-        const angle = rng.randFloat(0, Math.PI * 2);
-
-        const spawnX = this.player.x + Math.cos(angle) * spawnDistance;
-        const spawnY = this.player.y + Math.sin(angle) * spawnDistance;
-
-        const boss = new BossEnemy(spawnX, spawnY);
-        this.enemies.push(boss);
-      }
-    }
-
-    update(dt) {
-      this.currentTime = performance.now() / 1000.0;
-
-      if (this.state !== GameState.GAME) return;
-
-      // 1. Wave 转换计时器 (暂停游戏逻辑)
-      if (this.isWaveTransition) {
-        this.waveTransitionTimer -= dt;
-        if (this.waveTransitionTimer <= 0) {
-          this.isWaveTransition = false;
-        }
-        // 转换期间只允许玩家移动和释放冲击波
-        this.player.handleInput(this.input, dt);
-        this.player.update(dt);
-        this.camera.update(this.player, dt);
-        return;
-      }
-
-      // 2. Wave 推进检查
-      const activeBosses = this.enemies.filter(e => e instanceof BossEnemy).length;
-      if (this.enemiesKilledThisWave >= this.enemiesToKillForNextWave && activeBosses === 0) {
-        this.startNextWave();
-      }
-
-      // 3. 玩家更新
-      this.player.handleInput(this.input, dt);
-      this.player.update(dt);
-
-      // 4. 世界和建筑加载
-      const worldContent = this.world.getVisibleContent(this.player);
-      this.buildings = worldContent.buildings;
-
-      // 5. 敌人持续生成 (软上限控制)
-      this.enemySpawnTimer += dt;
-
-      // 难度缩放: Wave 越高，最大敌人数量越多，生成越快
-      const maxEnemyScale = 1 + this.wave * 0.15;
-      const currentMaxEnemies = Math.min(250, Math.floor(this.baseMaxEnemies * maxEnemyScale));
-      const continuousSpawnRate = 0.5; // 持续生成间隔 (秒)
-
-      const currentNormalEnemies = this.enemies.filter(e => !(e instanceof BossEnemy)).length;
-
-      // 只有当场上普通敌人数量低于软上限，且已生成的敌人总数未达到本波目标时，才持续生成
-      if (currentNormalEnemies < currentMaxEnemies && this.enemiesSpawnedThisWave < this.enemiesToKillForNextWave && this.enemySpawnTimer > continuousSpawnRate) {
-        this.spawnSingleEnemy(worldContent.chunkKeys);
-        this.enemiesSpawnedThisWave += 1;
-        this.enemySpawnTimer = 0;
-      }
-
-      // 6. 实体和投射物更新
-      this.enemies.forEach(e => e.update(dt, this.currentTime, this.player));
-      this.projectiles.forEach(p => p.update(dt));
-
-      // 7. 战斗和碰撞检测
-      this.handleCollisions(dt);
-
-      // 8. 过滤已死亡/超时的实体
-      this.projectiles = this.projectiles.filter(p => p.isAlive);
-      this.enemies = this.enemies.filter(e => e.isAlive);
-      this.buildings = this.buildings.filter(b => b.isAlive);
-
-      // 9. 玩家攻击
-      if (this.input.mouse.leftClick) {
-        const newProjectile = this.player.attack(this.currentTime, this.input.mouse.worldX, this.input.mouse.worldY);
-        if (newProjectile) {
-          this.projectiles.push(newProjectile);
-        }
-      }
-
-      // 10. 摄像机跟随
-      this.camera.update(this.player, dt);
-
-      // 11. 死亡检查
-      if (!this.player.isAlive) {
-        this.data.updateHighScore(Math.floor(this.player.score));
-        const coinsGained = Math.floor(this.player.score / 2000);
-        this.data.addCoins(coinsGained);
-        this.setState(GameState.GAME_OVER);
-      }
-    }
-
-    /**
-     * 在可见区域外随机生成单个敌人 (用于持续补充)
-     */
-    spawnSingleEnemy(chunkKeys) {
-      if (chunkKeys.length === 0) return;
-
-      const rng = new SeededRNG(performance.now() + 2); // Use slightly different seed
-      const targetChunkCoords = rng.choice(chunkKeys);
-      const bounds = this.world.getChunkWorldBounds(targetChunkCoords.x, targetChunkCoords.y);
-
-      let spawnX = rng.randFloat(bounds.x, bounds.x + bounds.width);
-      let spawnY = rng.randFloat(bounds.y, bounds.y + bounds.height);
-
-      const screenDist = Math.max(CANVAS_WIDTH, CANVAS_HEIGHT) / 2 + 100;
-      const distToPlayer = Math.sqrt((spawnX - this.player.x) ** 2 + (spawnY - this.player.y) ** 2);
-
-      // 确保生成在屏幕外
-      if (distToPlayer < screenDist) {
-        const angle = Math.atan2(spawnY - this.player.y, spawnX - this.player.x);
-        spawnX = this.player.x + Math.cos(angle) * screenDist;
-        spawnY = this.player.y + Math.sin(angle) * screenDist;
-      }
-
-      let enemy;
-      // 敌人类刷新权重: 50% Shooter, 50% Melee
-      const choice = rng.randFloat(0, 1);
-
-      if (choice < 0.5) {
-        enemy = new NormalShooter(spawnX, spawnY);
-      } else {
-        enemy = new FastMeleeEnemy(spawnX, spawnY);
-      }
-
-      this.enemies.push(enemy);
-    }
-
-    handleCollisions(dt) {
-      // --- E 键冲击波效果 ---
-      if (this.player.isShockwaving && this.player.shockwaveTimer >= this.player.shockwaveDuration - dt) {
-        const shockwaveDamage = this.player.shockwaveDamage * this.player.damageMultiplier;
-        const knockbackForce = 1500;
-
-        this.enemies.forEach(e => {
-          if (e.isAlive) {
-            const dx = e.x - this.player.x;
-            const dy = e.y - this.player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < this.player.shockwaveRadius) {
-              e.takeDamage(shockwaveDamage);
-              const angle = Math.atan2(dy, dx);
-              e.applyKnockback(angle, knockbackForce);
+        // 皮肤颜色
+        const SkinColors = {
+            default: 'rgb(0, 255, 0)',
+            blue: 'rgb(0, 100, 255)',
+            red: 'rgb(255, 50, 50)',
+            gold: 'rgb(255, 215, 0)'
+        };
+
+        // --------------------------------------------------------
+        // 1. Data/PlayerData.js - 数据持久化
+        // --------------------------------------------------------
+        class PlayerData {
+            constructor() {
+                this.coins = 0;
+                this.ownedSkins = ['default'];
+                this.currentSkin = 'default';
+                this.highScore = 0;
+                this.loadData();
             }
-          }
-        });
-      }
 
-      // --- 玩家 vs 建筑 ---
-      this.buildings.forEach(b => {
-        CollisionManager.checkAndResolve(this.player, b);
-      });
-
-      // --- 投射物 vs 实体/建筑 ---
-      this.projectiles.forEach(p => {
-        if (!p.isAlive) return;
-
-        if (p.type === 'player') {
-          this.enemies.forEach(e => {
-            if (e.isAlive && CollisionManager.checkCircleCollision(p, e)) {
-              e.takeDamage(p.damage);
-              p.isAlive = false;
+            loadData() {
+                try {
+                    // 使用 sessionStorage 代替 localStorage，因为本地文件运行可能阻止 localStorage 访问
+                    const dataString = sessionStorage.getItem('dantao_player_data'); 
+                    if (dataString) {
+                        const data = JSON.parse(dataString);
+                        this.coins = data.coins || 0;
+                        this.ownedSkins = data.owned_skins || ['default'];
+                        this.currentSkin = data.current_skin || 'default';
+                        this.highScore = data.highScore || 0;
+                    }
+                } catch (e) {
+                    console.error("加载数据失败，使用默认值:", e);
+                }
             }
-          });
 
-          this.buildings.forEach(b => {
-            if (b.isDestroyable && p.x > b.x && p.x < b.x + b.width && p.y > b.y && p.y < b.y + b.height) {
-              b.takeDamage(p.damage);
-              p.isAlive = false;
+            saveData() {
+                const data = {
+                    coins: this.coins,
+                    owned_skins: this.ownedSkins,
+                    current_skin: this.currentSkin,
+                    highScore: this.highScore
+                };
+                sessionStorage.setItem('dantao_player_data', JSON.stringify(data));
             }
-          });
 
-        } else if (p.type === 'enemy') {
-          if (this.player.isAlive && CollisionManager.checkCircleCollision(p, this.player)) {
-            this.player.takeDamage(p.damage);
-            p.isAlive = false;
-          }
+            addCoins(amount) {
+                this.coins += amount;
+                this.saveData();
+            }
+
+            updateHighScore(score) {
+                if (score > this.highScore) {
+                    this.highScore = score;
+                    this.saveData();
+                }
+            }
+
+            getSkinColor() {
+                return SkinColors[this.currentSkin] || SkinColors.default;
+            }
         }
-      });
 
-      // --- 敌人 vs 玩家 (接触伤害) ---
-      this.enemies.forEach(e => {
-        if (e.isAlive && CollisionManager.checkCircleCollision(e, this.player)) {
-          if (e instanceof FastMeleeEnemy) {
-            this.player.takeDamage(e.damage * dt * 5);
-          } else {
-            this.player.takeDamage(e.damage * dt);
-          }
+        // --------------------------------------------------------
+        // 2. Systems/CollisionManager.js - 碰撞系统
+        // --------------------------------------------------------
+        class CollisionManager {
+            static checkCircleCollision(e1, e2) {
+                const dx = e1.x - e2.x;
+                const dy = e1.y - e2.y;
+                const distanceSq = dx * dx + dy * dy;
+                const radiiSum = e1.radius + e2.radius;
+                return distanceSq < radiiSum * radiiSum;
+            }
 
+            static checkAndResolve(entity, targetRect) {
+                const radius = entity.radius || (entity.width ? entity.width / 2 : 30);
+                
+                const eRect = {
+                    left: entity.x - radius,
+                    right: entity.x + radius,
+                    top: entity.y - radius,
+                    bottom: entity.y + radius
+                };
+
+                const tRect = targetRect;
+
+                const overlapX = Math.max(0, Math.min(eRect.right, tRect.x + tRect.width) - Math.max(eRect.left, tRect.x));
+                const overlapY = Math.max(0, Math.min(eRect.bottom, tRect.y + tRect.height) - Math.max(eRect.top, tRect.y));
+
+                if (overlapX > 0 && overlapY > 0) {
+                    if (overlapX < overlapY) {
+                        if (eRect.left < tRect.x) {
+                            entity.x -= overlapX;
+                        } else {
+                            entity.x += overlapX;
+                        }
+                    } else {
+                        if (eRect.top < tRect.y) {
+                            entity.y -= overlapY;
+                        } else {
+                            entity.y += overlapY;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
         }
-      });
-    }
 
-    // --- 画面渲染 ---
+        // --------------------------------------------------------
+        // 3. Systems/Camera.js - 摄像机系统
+        // --------------------------------------------------------
+        class Camera {
+            constructor(width, height) {
+                this.width = width;
+                this.height = height;
+                this.x = 0;
+                this.y = 0;
+                this.smoothness = 0.08;
+            }
 
-    draw() {
-      this.ctx.fillStyle = BACKGROUND_COLOR;
-      this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            update(target, dt) {
+                const targetX = target.x - this.width / 2;
+                const targetY = target.y - this.height / 2;
 
-      const offset = { x: this.camera.x, y: this.camera.y };
+                this.x += (targetX - this.x) * this.smoothness;
+                this.y += (targetY - this.y) * this.smoothness;
+            }
 
-      this.drawGrid();
+            worldToScreen(worldX, worldY) {
+                return {
+                    x: worldX - this.x,
+                    y: worldY - this.y
+                };
+            }
 
-      if (this.state === GameState.GAME || this.state === GameState.LEVEL_UP || this.state === GameState.GAME_OVER) {
-        const viewport = this.camera.getViewport();
-        const inView = (entity) => entity.x > viewport.left && entity.x < viewport.right && entity.y > viewport.top && entity.y < viewport.bottom;
+            getViewport() {
+                const inflate = 200;
+                return {
+                    left: this.x - inflate,
+                    top: this.y - inflate,
+                    right: this.x + this.width + inflate,
+                    bottom: this.y + this.height + inflate
+                };
+            }
+        }
 
-        this.buildings.filter(inView).forEach(b => b.draw(this.ctx, offset));
-        this.projectiles.filter(inView).forEach(p => p.draw(this.ctx, offset));
-        this.enemies.filter(inView).forEach(e => e.draw(this.ctx, offset));
+        // --------------------------------------------------------
+        // 4. Systems/RNG.js (Helper) & InfiniteWorld.js - 世界生成
+        // --------------------------------------------------------
 
-        this.player.draw(this.ctx, offset);
+        class SeededRNG {
+            constructor(seed) {
+                this.seed = seed % 2147483647;
+                if (this.seed <= 0) this.seed += 2147483646;
+            }
 
-        this.drawHUD();
-      }
+            next() {
+                this.seed = (this.seed * 16807) % 2147483647;
+                return (this.seed - 1) / 2147483646;
+            }
 
-      if (this.state === GameState.MENU) this.drawMenu();
-      else if (this.state === GameState.LEVEL_UP) this.drawLevelUpScreen();
-      else if (this.state === GameState.GAME_OVER) this.drawGameOverScreen();
+            randFloat(min = 0, max = 1) {
+                return min + this.next() * (max - min);
+            }
 
-      // 绘制 Wave 转换提示
-      if (this.isWaveTransition) this.drawWaveTransition();
-    }
+            randInt(min, max) {
+                return Math.floor(this.randFloat(min, max + 1));
+            }
+            
+            choice(arr) {
+                return arr[this.randInt(0, arr.length - 1)];
+            }
+        }
 
-    drawGrid() {
-      this.ctx.strokeStyle = GRID_COLOR;
-      this.ctx.lineWidth = 1;
-      const step = 50;
+        class Building {
+            constructor(x, y, width, height, type) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.type = type;
+                this.health = type === 'wood' ? 50 : 150;
+                this.maxHealth = this.health;
+                this.isHazard = type === 'spike' || type === 'fire';
+                this.isDestroyable = !this.isHazard;
+                this.damage = this.isHazard ? (type === 'spike' ? 15 : 20) : 0;
+                
+                this.color = this._getColor(type);
+                this.isAlive = true;
+            }
 
-      const startX = -this.camera.x % step;
-      const startY = -this.camera.y % step;
+            _getColor(type) {
+                switch (type) {
+                    case 'wood': return 'rgb(139, 69, 19)';
+                    case 'stone': return 'rgb(100, 100, 100)';
+                    case 'spike': return 'rgb(150, 50, 50)';
+                    case 'fire': return 'rgb(255, 100, 0)';
+                    default: return 'gray';
+                }
+            }
+            
+            takeDamage(damage) {
+                if (this.isDestroyable) {
+                    this.health -= damage;
+                    if (this.health <= 0) {
+                        this.isAlive = false;
+                        return true;
+                    }
+                }
+                return false;
+            }
 
-      for (let x = startX; x < CANVAS_WIDTH; x += step) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, 0);
-        this.ctx.lineTo(x, CANVAS_HEIGHT);
-        this.ctx.stroke();
-      }
+            draw(ctx, offset) {
+                const screenPos = {
+                    x: this.x - offset.x,
+                    y: this.y - offset.y
+                };
 
-      for (let y = startY; y < CANVAS_HEIGHT; y += step) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, y);
-        this.ctx.lineTo(CANVAS_WIDTH, y);
-        this.ctx.stroke();
-      }
-    }
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(screenPos.x + 5, screenPos.y + 5, this.width, this.height);
 
-    drawText(text, x, y, size, color = 'white', font = 'Arial', align = 'left') {
-      this.ctx.font = `${size}px ${font}`;
-      this.ctx.fillStyle = color;
-      this.ctx.textAlign = align;
-      this.ctx.fillText(text, x, y);
-    }
+                ctx.fillStyle = this.color;
+                ctx.fillRect(screenPos.x, screenPos.y, this.width, this.height);
+                
+                if (this.type === 'spike') {
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    for (let i = 0; i < 5; i++) {
+                        ctx.moveTo(screenPos.x + i * (this.width / 5), screenPos.y);
+                        ctx.lineTo(screenPos.x + (i * (this.width / 5)) + (this.width / 10), screenPos.y - 10);
+                        ctx.lineTo(screenPos.x + (i + 1) * (this.width / 5), screenPos.y);
+                    }
+                    ctx.fill();
+                }
+            }
+        }
 
-    drawWaveTransition() {
-      const centerX = CANVAS_WIDTH / 2;
-      const centerY = CANVAS_HEIGHT / 2;
+        class InfiniteWorld {
+            constructor() {
+                this.chunkSize = 1000;
+                this.chunks = new Map();
+                this.typeDistribution = [
+                    { type: 'wood', prob: 0.40 },
+                    { type: 'stone', prob: 0.30 },
+                    { type: 'spike', prob: 0.15 },
+                    { type: 'fire', prob: 0.15 }
+                ];
+            }
 
-      // 渐变透明的背景遮罩
-      const alpha = Math.min(0.8, Math.abs(this.waveTransitionTimer - 1.5) / 1.5);
-      this.ctx.fillStyle = `rgba(10, 10, 30, ${alpha})`;
-      this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            getChunkCoords(worldX, worldY) {
+                const chunkX = Math.floor(worldX / this.chunkSize);
+                const chunkY = Math.floor(worldY / this.chunkSize);
+                return { x: chunkX, y: chunkY };
+            }
 
-      // 文本闪烁效果
-      const flash = Math.abs(Math.sin(this.currentTime * 5));
+            getChunkKey(x, y) {
+                return `${x},${y}`;
+            }
 
-      this.drawText(`WAVE ${this.wave}`, centerX, centerY - 50, 120, '#FFD700', 'Impact', 'center');
+            getVisibleContent(player) {
+                const { x: pX, y: pY } = this.getChunkCoords(player.x, player.y);
+                const visibleBuildings = [];
+                const visibleChunkKeys = [];
+                const loadDistance = 2;
 
-      if (this.wave >= 2) {
-        this.drawText(`生成 ${this.wave} 个 Boss! 准备好密集敌人冲击!`, centerX, centerY + 50, 48, `rgba(255, 50, 50, ${flash})`, 'Arial', 'center');
-      } else {
-        this.drawText(`敌人正在靠近! 密集来袭!`, centerX, centerY + 50, 48, `rgba(0, 255, 0, ${flash})`, 'Arial', 'center');
-      }
-    }
+                for (let i = -loadDistance; i <= loadDistance; i++) {
+                    for (let j = -loadDistance; j <= loadDistance; j++) {
+                        const chunkX = pX + i;
+                        const chunkY = pY + j;
+                        const key = this.getChunkKey(chunkX, chunkY);
+                        visibleChunkKeys.push({ x: chunkX, y: chunkY });
 
-    drawMenu() {
-      const centerX = CANVAS_WIDTH / 2;
+                        if (!this.chunks.has(key)) {
+                            this.generateChunk(chunkX, chunkY);
+                        }
 
-      this.drawText("DANTAO", centerX, 200, 90, '#FFD700', 'Impact', 'center');
-      this.drawText("无尽 Wave 生存模式", centerX, 270, 40, 'white', 'Arial', 'center');
+                        visibleBuildings.push(...this.chunks.get(key).buildings.filter(b => b.isAlive));
+                    }
+                }
+                
+                return {
+                    buildings: visibleBuildings,
+                    chunkKeys: visibleChunkKeys
+                };
+            }
 
-      const startButton = { x: 550, y: 400, w: 300, h: 60 };
-      this.ctx.fillStyle = '#4650a3';
-      this.ctx.fillRect(startButton.x, startButton.y, startButton.w, startButton.h);
-      this.ctx.strokeStyle = 'white';
-      this.ctx.lineWidth = 3;
-      this.ctx.strokeRect(startButton.x, startButton.y, startButton.w, startButton.h);
-      this.drawText("开始游戏", centerX, 445, 36, 'white', 'Arial', 'center');
+            generateChunk(chunkX, chunkY) {
+                const key = this.getChunkKey(chunkX, chunkY);
+                const seed = (chunkX * 10000 + chunkY) * 12345;
+                const rng = new SeededRNG(seed);
+                
+                const buildings = [];
+                const numBuildings = rng.randInt(10, 25);
+                
+                const originX = chunkX * this.chunkSize;
+                const originY = chunkY * this.chunkSize;
+                const padding = 50;
 
-      this.drawText(`最高分: ${this.data.highScore}`, 100, CANVAS_HEIGHT - 30, 24, 'white');
-      this.drawText(`金币: ${this.data.coins}`, centerX, CANVAS_HEIGHT - 30, 24, '#FFD700', 'Arial', 'center');
-      this.drawText(`当前皮肤: ${this.data.currentSkin.toUpperCase()}`, CANVAS_WIDTH - 100, CANVAS_HEIGHT - 30, 24, 'white', 'Arial', 'right');
-    }
+                for (let i = 0; i < numBuildings; i++) {
+                    const typeIndex = this._getWeightedRandomType(rng);
+                    const type = this.typeDistribution[typeIndex].type;
+                    
+                    const width = rng.randInt(60, 120);
+                    const height = rng.randInt(60, 120);
 
-    drawHUD() {
-      const p = this.player;
-      const hudX = 20;
-      const hudY = 20;
+                    const x = originX + rng.randInt(padding, this.chunkSize - width - padding);
+                    const y = originY + rng.randInt(padding, this.chunkSize - height - padding);
 
-      // --- HP Bar ---
-      const hpBarW = 350;
-      const hpBarH = 35;
-      const hpRatio = p.health / p.maxHealth;
-      let hpColor = hpRatio > 0.6 ? 'rgb(50, 255, 50)' : (hpRatio > 0.3 ? 'rgb(255, 200, 50)' : 'rgb(255, 50, 50)');
+                    buildings.push(new Building(x, y, width, height, type));
+                }
 
-      this.ctx.fillStyle = 'rgb(100, 30, 30)';
-      this.ctx.fillRect(hudX, hudY, hpBarW, hpBarH);
-      this.ctx.fillStyle = hpColor;
-      this.ctx.fillRect(hudX, hudY, hpBarW * hpRatio, hpBarH);
-      this.ctx.strokeStyle = 'white';
-      this.ctx.lineWidth = 3;
-      this.ctx.strokeRect(hudX, hudY, hpBarW, hpBarH);
-      this.drawText(`HP: ${Math.floor(p.health)}/${p.maxHealth}`, hudX + 10, hudY + 25, 24, 'white');
+                this.chunks.set(key, { buildings: buildings, enemies: [] });
+            }
+            
+            _getWeightedRandomType(rng) {
+                const total = this.typeDistribution.reduce((sum, item) => sum + item.prob, 0);
+                let rand = rng.randFloat(0, total);
 
-      // --- EXP Bar ---
-      const expBarW = 350;
-      const expBarH = 25;
-      const expRatio = p.exp / p.expToNextLevel;
+                for (let i = 0; i < this.typeDistribution.length; i++) {
+                    rand -= this.typeDistribution[i].prob;
+                    if (rand <= 0) {
+                        return i;
+                    }
+                }
+                return 0;
+            }
+            
+            getChunkWorldBounds(chunkX, chunkY) {
+                const originX = chunkX * this.chunkSize;
+                const originY = chunkY * this.chunkSize;
+                return {
+                    x: originX,
+                    y: originY,
+                    width: this.chunkSize,
+                    height: this.chunkSize
+                };
+            }
+        }
 
-      this.ctx.fillStyle = 'rgb(30, 60, 100)';
-      this.ctx.fillRect(hudX, hudY + hpBarH + 5, expBarW, expBarH);
-      this.ctx.fillStyle = 'rgb(100, 200, 255)';
-      this.ctx.fillRect(hudX, hudY + hpBarH + 5, expBarW * expRatio, expBarH);
-      this.ctx.strokeStyle = 'white';
-      this.ctx.lineWidth = 2;
-      this.ctx.strokeRect(hudX, hudY + hpBarH + 5, expBarW, expBarH);
-      this.drawText(`Lv.${p.level} - ${p.exp}/${p.expToNextLevel} XP`, hudX + 10, hudY + hpBarH + 22, 20, 'white');
 
-      // --- Wave & Kill Progress ---
-      const waveInfoX = CANVAS_WIDTH / 2;
-      const activeBosses = this.enemies.filter(e => e instanceof BossEnemy).length;
+        // --------------------------------------------------------
+        // 5. Entities/Player.js - 玩家实体
+        // --------------------------------------------------------
+        class Player {
+            constructor(x, y, data) {
+                this.x = x;
+                this.y = y;
+                this.radius = 30;
+                this.data = data;
+                this.level = 1;
+                this.score = 0;
+                
+                this.maxHealth = 100;
+                this.health = 100;
+                this.baseSpeed = 250;
+                this.baseDamage = 15;
+                
+                this.damageMultiplier = 1.0;
+                this.speedMultiplier = 1.0;
+                
+                this.isAlive = true;
+                this.isInvincible = false;
+                this.invincibilityTimer = 0;
+                this.invincibilityDuration = 0.5;
+                this.lastAttackTime = 0;
+                this.attackCooldown = 0.25;
+                
+                this.shockwaveCooldown = 0;
+                this.shockwaveMaxCooldown = SHOCKWAVE_COOLDOWN;
+                this.shockwaveRadius = 500;
+                this.shockwaveDamage = 100;
+                this.isShockwaving = false;
+                this.shockwaveTimer = 0.0;
+                this.shockwaveDuration = 0.2;
 
-      this.drawText(`WAVE ${this.wave}`, waveInfoX, hudY + 30, 48, '#FFD700', 'Impact', 'center');
+                this.exp = 0;
+                this.expToNextLevel = 100;
+                this.expGrowthRate = 1.4;
 
-      const killText = `击杀目标: ${this.enemiesKilledThisWave}/${this.enemiesToKillForNextWave}`;
-      const bossText = `Boss: ${activeBosses} 存活`;
+                this.aimAngle = 0;
+            }
+            
+            useShockwave(currentTime) {
+                if (this.shockwaveCooldown <= 0) {
+                    this.shockwaveCooldown = this.shockwaveMaxCooldown;
+                    this.isShockwaving = true;
+                    this.shockwaveTimer = this.shockwaveDuration;
+                    return true;
+                }
+                return false;
+            }
 
-      this.drawText(killText, waveInfoX, hudY + 65, 24, 'white', 'Arial', 'center');
-      this.drawText(bossText, waveInfoX, hudY + 90, 24, activeBosses > 0 ? 'rgb(255, 50, 50)' : 'rgb(50, 255, 50)', 'Arial', 'center');
+            gainExp(amount) {
+                this.exp += amount;
+                while (this.exp >= this.expToNextLevel) {
+                    this.levelUp();
+                }
+            }
+            
+            levelUp() {
+                this.level += 1;
+                this.exp -= this.expToNextLevel;
+                this.expToNextLevel = Math.floor(100 * (this.expGrowthRate ** this.level));
+                
+                this.health += this.maxHealth * 0.3;
+                if (this.health > this.maxHealth) this.health = this.maxHealth;
+                
+                gameInstance.setState(GameState.LEVEL_UP);
+            }
+            
+            applyUpgrade(type) {
+                switch(type) {
+                    case 'damage':
+                        this.damageMultiplier += 0.25;
+                        break;
+                    case 'health':
+                        this.maxHealth += 30;
+                        this.health += 30;
+                        break;
+                    case 'speed':
+                        this.speedMultiplier += 0.15;
+                        break;
+                }
+                gameInstance.setState(GameState.GAME);
+            }
 
-      // --- Score ---
-      const scoreX = CANVAS_WIDTH - 20;
-      this.drawText(`Score: ${Math.floor(p.score)}`, scoreX, hudY + 30, 32, 'white', 'Arial', 'right');
+            takeDamage(damage) {
+                if (!this.isAlive || this.isInvincible) return false;
 
-      // --- E Skill ---
-      const skillX = CANVAS_WIDTH - 150;
-      const skillY = CANVAS_HEIGHT - 50;
-      const skillSize = 70;
+                this.health -= damage;
+                
+                this.isInvincible = true;
+                this.invincibilityTimer = this.invincibilityDuration;
 
-      const skillRatio = Math.max(0, p.shockwaveCooldown / p.shockwaveMaxCooldown);
+                if (this.health <= 0) {
+                    this.health = 0;
+                    this.isAlive = false;
+                    gameInstance.setState(GameState.GAME_OVER);
+                }
+                return true;
+            }
 
-      this.ctx.fillStyle = 'rgba(50, 50, 50, 0.5)';
-      this.ctx.fillRect(skillX - skillSize / 2, skillY - skillSize / 2, skillSize, skillSize);
+            attack(currentTime, targetX, targetY) {
+                if (currentTime >= this.lastAttackTime + this.attackCooldown) {
+                    this.lastAttackTime = currentTime;
+                    
+                    const finalDamage = this.baseDamage * this.damageMultiplier;
+                    const speed = 600;
 
-      if (skillRatio > 0) {
-        this.ctx.fillStyle = 'rgba(20, 20, 40, 0.7)';
-        this.ctx.fillRect(skillX - skillSize / 2, skillY - skillSize / 2, skillSize, skillSize * skillRatio);
-        this.drawText(Math.ceil(p.shockwaveCooldown).toString(), skillX, skillY + 10, 40, '#FFD700', 'Impact', 'center');
-      } else {
-        this.drawText("E", skillX, skillY + 10, 40, 'rgb(100, 200, 255)', 'Impact', 'center');
-      }
+                    const dx = targetX - this.x;
+                    const dy = targetY - this.y;
+                    this.aimAngle = Math.atan2(dy, dx);
 
-      this.ctx.strokeStyle = p.shockwaveCooldown > 0 ? 'rgb(100, 100, 100)' : 'rgb(100, 200, 255)';
-      this.ctx.lineWidth = 3;
-      this.ctx.strokeRect(skillX - skillSize / 2, skillY - skillSize / 2, skillSize, skillSize);
+                    return new Projectile(this.x, this.y, this.aimAngle, speed, finalDamage, this, 'player');
+                }
+                return null;
+            }
 
-      this.drawText("冲击波 (E)", skillX, skillY + skillSize / 2 + 25, 20, 'white', 'Arial', 'center');
-    }
+            handleInput(input, dt) {
+                let velX = 0;
+                let velY = 0;
+                const currentSpeed = this.baseSpeed * this.speedMultiplier;
 
-    drawLevelUpScreen() {
-      const centerX = CANVAS_WIDTH / 2;
-      const centerY = CANVAS_HEIGHT / 2;
+                if (input.keys['w']) velY -= 1;
+                if (input.keys['s']) velY += 1;
+                if (input.keys['a']) velX -= 1;
+                if (input.keys['d']) velX += 1;
+                if (input.keys['e'] && gameInstance.state === GameState.GAME) {
+                    this.useShockwave(gameInstance.currentTime);
+                }
 
-      this.ctx.fillStyle = 'rgba(10, 10, 30, 0.95)';
-      this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                if (velX !== 0 || velY !== 0) {
+                    const magnitude = Math.sqrt(velX * velX + velY * velY);
+                    velX /= magnitude;
+                    velY /= magnitude;
+                }
 
-      this.drawText("★ 升 级! ★", centerX, centerY - 250, 90, '#FFD700', 'Impact', 'center');
-      this.drawText(`等级 ${this.player.level}!`, centerX, centerY - 180, 50, 'white', 'Arial', 'center');
-      this.drawText("选择一个升级:", centerX, centerY - 100, 36, 'white', 'Arial', 'center');
+                this.x += velX * currentSpeed * dt;
+                this.y += velY * currentSpeed * dt;
+                
+                const dx = input.mouse.worldX - this.x;
+                const dy = input.mouse.worldY - this.y;
+                this.aimAngle = Math.atan2(dy, dx);
+            }
 
-      const options = [
-        { key: '1', icon: '⚔', name: "增加伤害", effect: "+25% 攻击伤害", color: 'rgb(255, 100, 100)' },
-        { key: '2', icon: '❤', name: "增加生命", effect: "+30 最大生命值", color: 'rgb(255, 50, 150)' },
-        { key: '3', icon: '➤', name: "移动速度", effect: "+15% 移动速度", color: 'rgb(100, 200, 255)' }
-      ];
+            update(dt) {
+                this.score += 1 * dt;
+                
+                if (this.isInvincible) {
+                    this.invincibilityTimer -= dt;
+                    if (this.invincibilityTimer <= 0) {
+                        this.isInvincible = false;
+                    }
+                }
 
-      let startY = centerY - 30;
-      const cardW = 400;
-      const cardH = 100;
+                if (this.shockwaveCooldown > 0) {
+                    this.shockwaveCooldown -= dt;
+                }
+                
+                if (this.isShockwaving) {
+                    this.shockwaveTimer -= dt;
+                    if (this.shockwaveTimer <= 0) {
+                        this.isShockwaving = false;
+                    }
+                }
+                
+                gameInstance.buildings.forEach(b => {
+                    const trapContact = { 
+                        x: b.x + b.width / 2, 
+                        y: b.y + b.height / 2, 
+                        radius: Math.min(b.width, b.height) / 2 
+                    };
+                    if (b.isHazard && CollisionManager.checkCircleCollision(this, trapContact)) {
+                        this.takeDamage(b.damage * dt);
+                    }
+                });
+            }
 
-      options.forEach((opt, index) => {
-        const y = startY + index * (cardH + 20);
+            draw(ctx, offset) {
+                const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
+                
+                if (this.isShockwaving) {
+                    const progress = 1 - (this.shockwaveTimer / this.shockwaveDuration);
+                    const currentRadius = progress * this.shockwaveRadius;
+                    
+                    ctx.beginPath();
+                    ctx.arc(screenPos.x, screenPos.y, currentRadius, 0, Math.PI * 2);
+                    
+                    const alpha = 0.5 - progress * 0.5; 
+                    ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`;
+                    ctx.lineWidth = 15 + (1 - progress) * 20;
+                    ctx.stroke();
+                }
 
-        this.ctx.fillStyle = opt.color;
-        this.ctx.globalAlpha = 0.4;
-        this.ctx.fillRect(centerX - cardW / 2, y, cardW, cardH);
-        this.ctx.globalAlpha = 1.0;
-        this.ctx.strokeStyle = 'white';
-        this.ctx.lineWidth = 4;
-        this.ctx.strokeRect(centerX - cardW / 2, y, cardW, cardH);
+                const isFlashing = this.isInvincible && (Math.floor(this.invincibilityTimer * 10) % 2 === 0);
+                
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = isFlashing ? 'white' : this.data.getSkinColor();
+                ctx.fill();
 
-        this.drawText(`[${opt.key}]`, centerX - cardW / 2 + 30, y + 60, 48, '#FFD700', 'Arial', 'left');
-        this.drawText(opt.icon, centerX - 50, y + 40, 36, 'white', 'Arial', 'left');
-        this.drawText(opt.name, centerX - 50, y + 75, 30, 'white', 'Arial', 'left');
-        this.drawText(opt.effect, centerX + 100, y + 60, 24, 'lightgray', 'Arial', 'center');
-      });
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 3;
+                ctx.stroke();
 
-      this.drawText("按 1, 2, 或 3 选择升级", centerX, CANVAS_HEIGHT - 50, 30, 'white', 'Arial', 'center');
-    }
+                const eyeRadius = 12;
+                const pupilRadius = 6;
+                const eyeOffset = 10;
+                
+                const eyeX = screenPos.x + Math.cos(this.aimAngle) * (this.radius - eyeRadius);
+                const eyeY = screenPos.y + Math.sin(this.aimAngle) * (this.radius - eyeRadius);
 
-    drawGameOverScreen() {
-      const centerX = CANVAS_WIDTH / 2;
-      const centerY = CANVAS_HEIGHT / 2;
+                const pupilX = eyeX + Math.cos(this.aimAngle) * eyeOffset;
+                const pupilY = eyeY + Math.sin(this.aimAngle) * eyeOffset;
 
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.beginPath();
+                ctx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2);
+                ctx.fillStyle = 'white';
+                ctx.fill();
 
-      this.drawText("游戏结束", centerX, centerY - 150, 100, 'rgb(255, 50, 50)', 'Impact', 'center');
+                ctx.beginPath();
+                ctx.arc(pupilX, pupilY, pupilRadius, 0, Math.PI * 2);
+                ctx.fillStyle = 'black';
+                ctx.fill();
+            }
+        }
+        
+        // --------------------------------------------------------
+        // 6. Entities/Projectile.js - 投射物系统
+        // --------------------------------------------------------
+        class Projectile {
+            constructor(x, y, angle, speed, damage, owner, type) {
+                this.x = x;
+                this.y = y;
+                this.angle = angle;
+                this.speed = speed;
+                this.damage = damage;
+                this.owner = owner;
+                this.type = type;
+                this.radius = 8;
+                this.velX = Math.cos(angle) * speed;
+                this.velY = Math.sin(angle) * speed;
+                this.lifetime = 3.0;
+                this.isAlive = true;
 
-      this.drawText(`得分: ${Math.floor(this.player.score)}`, centerX, centerY - 20, 48, 'white', 'Arial', 'center');
-      this.drawText(`最高分: ${this.data.highScore}`, centerX, centerY + 40, 36, '#FFD700', 'Arial', 'center');
+                this.color = type === 'player' ? 'rgb(255, 215, 0)' : 'rgb(255, 50, 50)';
+            }
 
-      const coinsGained = Math.floor(this.player.score / 2000);
-      this.drawText(`本局达到 Wave ${this.wave}`, centerX, centerY + 100, 40, 'rgb(255, 255, 0)', 'Arial', 'center');
-      this.drawText(`获得金币: +${coinsGained}`, centerX, centerY + 150, 32, 'rgb(0, 200, 0)', 'Arial', 'center');
+            update(dt) {
+                this.x += this.velX * dt;
+                this.y += this.velY * dt;
+                this.lifetime -= dt;
 
-      this.drawText("按 R 重新开始 | 按 ESC 返回菜单", centerX, CANVAS_HEIGHT - 100, 30, 'lightgray', 'Arial', 'center');
-    }
+                if (this.lifetime <= 0) {
+                    this.isAlive = false;
+                }
+            }
 
-    run() {
-      const loop = (currentTime) => {
-        if (!this.running) return;
+            draw(ctx, offset) {
+                const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
 
-        const dt = (currentTime - this.lastTime) / 1000.0 || 0;
-        this.lastTime = currentTime;
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, this.radius * 2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color.slice(4, -1)}, 0.2)`;
+                ctx.fill();
 
-        this.update(dt);
-        this.draw();
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
 
-        requestAnimationFrame(loop);
-      };
-      requestAnimationFrame(loop);
-    }
-  }
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, this.radius / 2, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgb(255, 255, 200)';
+                ctx.fill();
+            }
+        }
+        
+        // --------------------------------------------------------
+        // 7. Entities/Enemy.js - 敌人系统
+        // --------------------------------------------------------
 
-  window.onload = () => {
-    gameInstance = new Game();
-  };
+        class EnemyBase {
+            constructor() {
+                this.isAlive = true;
+                this.knockbackVelX = 0;
+                this.knockbackVelY = 0;
+            }
+            
+            drawHealthBar(ctx, screenPos) {
+                const barWidth = 40;
+                const barHeight = 5;
+                const healthRatio = this.health / this.maxHealth;
+                
+                ctx.fillStyle = 'rgb(100, 30, 30)';
+                ctx.fillRect(screenPos.x - barWidth / 2, screenPos.y - this.radius - 15, barWidth, barHeight);
+                
+                ctx.fillStyle = healthRatio > 0.6 ? 'rgb(50, 255, 50)' : 'rgb(255, 200, 50)';
+                ctx.fillRect(screenPos.x - barWidth / 2, screenPos.y - this.radius - 15, barWidth * healthRatio, barHeight);
+            }
 
-</script>
+            applyKnockback(angle, force) {
+                this.knockbackVelX = Math.cos(angle) * force;
+                this.knockbackVelY = Math.sin(angle) * force;
+            }
+
+            updateMovement(dt, speed) {
+                this.x += this.knockbackVelX * dt;
+                this.y += this.knockbackVelY * dt;
+
+                const decayRate = 0.9;
+                this.knockbackVelX *= decayRate;
+                this.knockbackVelY *= decayRate;
+                
+                if (Math.abs(this.knockbackVelX) < 10) this.knockbackVelX = 0;
+                if (Math.abs(this.knockbackVelY) < 10) this.knockbackVelY = 0;
+            }
+        }
+
+        /** 普通射手敌人 */
+        class NormalShooter extends EnemyBase {
+            constructor(x, y) {
+                super();
+                this.x = x;
+                this.y = y;
+                this.radius = 25;
+                this.maxHealth = 40;
+                this.health = 40;
+                this.speed = 100;
+                this.damage = 8;
+                this.expValue = 15;
+                this.color = 'rgb(255, 100, 100)';
+                this.attackCooldown = 2.0;
+                this.lastAttackTime = 0;
+                this.attackRange = 350;
+                this.alertRange = 500;
+            }
+
+            takeDamage(damage) {
+                this.health -= damage;
+                if (this.health <= 0) {
+                    this.isAlive = false;
+                    gameInstance.player.gainExp(this.expValue);
+                    gameInstance.player.score += this.expValue;
+                    gameInstance.enemiesKilledThisWave += 1; // 计入 WAVE 击杀
+                    return true;
+                }
+                return false;
+            }
+
+            update(dt, currentTime, target) {
+                if (!this.isAlive) return;
+                
+                this.updateMovement(dt, this.speed);
+                if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
+
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+                
+                const speed = this.speed;
+
+                if (distance < this.alertRange) {
+                    let moveX = Math.cos(angle);
+                    let moveY = Math.sin(angle);
+                    
+                    if (distance < 200) {
+                        moveX *= -1;
+                        moveY *= -1;
+                    } else if (distance > 300) {
+                    } else {
+                        moveX = 0;
+                        moveY = 0;
+                    }
+                    
+                    this.x += moveX * speed * dt;
+                    this.y += moveY * speed * dt;
+                    
+                    if (distance < this.attackRange && currentTime >= this.lastAttackTime + this.attackCooldown) {
+                        this.lastAttackTime = currentTime;
+                        this.shoot(angle);
+                    }
+                }
+            }
+
+            shoot(angle) {
+                const speed = 400;
+                const damage = this.damage;
+                const projectile = new Projectile(this.x, this.y, angle, speed, damage, this, 'enemy');
+                gameInstance.projectiles.push(projectile);
+            }
+
+            draw(ctx, offset) {
+                const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
+
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                this.drawHealthBar(ctx, screenPos);
+            }
+        }
+        
+        /** 快速近战敌人 */
+        class FastMeleeEnemy extends EnemyBase {
+            constructor(x, y) {
+                super();
+                this.x = x;
+                this.y = y;
+                this.width = 30;
+                this.height = 30;
+                this.radius = 20;
+                this.maxHealth = 20;
+                this.health = 20;
+                this.speed = 350;
+                this.damage = 5;
+                this.expValue = 8;
+                this.color = 'rgb(50, 255, 255)';
+            }
+            
+            takeDamage(damage) {
+                this.health -= damage;
+                if (this.health <= 0) {
+                    this.isAlive = false;
+                    gameInstance.player.gainExp(this.expValue);
+                    gameInstance.player.score += this.expValue;
+                    gameInstance.enemiesKilledThisWave += 1; // 计入 WAVE 击杀
+                    return true;
+                }
+                return false;
+            }
+
+            update(dt, currentTime, target) {
+                if (!this.isAlive) return;
+                
+                this.updateMovement(dt, this.speed);
+                if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
+
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const angle = Math.atan2(dy, dx);
+                
+                this.x += Math.cos(angle) * this.speed * dt;
+                this.y += Math.sin(angle) * this.speed * dt;
+            }
+
+            draw(ctx, offset) {
+                const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
+                const halfW = this.width / 2;
+                const halfH = this.height / 2;
+
+                ctx.fillStyle = this.color;
+                ctx.fillRect(screenPos.x - halfW, screenPos.y - halfH, this.width, this.height);
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(screenPos.x - halfW, screenPos.y - halfH, this.width, this.height);
+                
+                this.drawHealthBar(ctx, screenPos);
+            }
+        }
+
+        /** Boss 敌人 (Wave 主要目标之一) */
+        class BossEnemy extends EnemyBase {
+            constructor(x, y) {
+                super();
+                this.x = x;
+                this.y = y;
+                this.radius = 70;
+                // Boss 血量随 Wave 提升
+                this.maxHealth = 500 + gameInstance.wave * 200;
+                this.health = this.maxHealth;
+                this.speed = 50;
+                this.damage = 25;
+                this.expValue = 300;
+                this.color = 'rgb(100, 50, 150)';
+                this.attackCooldown = 5.0;
+                this.lastAttackTime = 0;
+                this.numProjectiles = 12;
+            }
+            
+            takeDamage(damage) {
+                this.health -= damage;
+                if (this.health <= 0) {
+                    this.isAlive = false;
+                    gameInstance.player.gainExp(this.expValue);
+                    gameInstance.player.score += this.expValue * 5;
+                    // Boss 死亡不计入 enemiesKilledThisWave，但其死亡是 Wave 结束的必要条件。
+                    return true;
+                }
+                return false;
+            }
+
+            update(dt, currentTime, target) {
+                if (!this.isAlive) return;
+                
+                this.updateMovement(dt, this.speed);
+                if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
+
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const angle = Math.atan2(dy, dx);
+                
+                this.x += Math.cos(angle) * this.speed * dt;
+                this.y += Math.sin(angle) * this.speed * dt;
+                
+                if (currentTime >= this.lastAttackTime + this.attackCooldown) {
+                    this.lastAttackTime = currentTime;
+                    this.shootRadial();
+                }
+            }
+
+            shootRadial() {
+                const speed = 300;
+                const damage = this.damage;
+                const projectiles = [];
+                
+                for (let i = 0; i < this.numProjectiles; i++) {
+                    const angle = (i / this.numProjectiles) * Math.PI * 2;
+                    projectiles.push(new Projectile(this.x, this.y, angle, speed, damage, this, 'enemy'));
+                }
+                gameInstance.projectiles.push(...projectiles);
+            }
+
+            draw(ctx, offset) {
+                const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
+
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.strokeStyle = '#FFD700';
+                ctx.lineWidth = 5;
+                ctx.stroke();
+                
+                ctx.fillStyle = '#FFD700';
+                const crownBaseY = screenPos.y - this.radius;
+                
+                ctx.beginPath();
+                ctx.moveTo(screenPos.x - this.radius * 0.5, crownBaseY);
+                ctx.lineTo(screenPos.x + this.radius * 0.5, crownBaseY);
+                
+                for(let i = -2; i <= 2; i++) {
+                    const tipX = screenPos.x + i * (this.radius * 0.2);
+                    const tipY = crownBaseY - 20;
+                    ctx.lineTo(tipX, tipY);
+                    ctx.lineTo(tipX + (this.radius * 0.1), crownBaseY);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                this.drawHealthBar(ctx, screenPos);
+            }
+        }
+
+
+        // --------------------------------------------------------
+        // 8. Game - 游戏主控制层 (Wave 逻辑核心)
+        // --------------------------------------------------------
+        
+        let gameInstance;
+
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.musicControl = document.getElementById('music-control');
+                this.bgm = document.getElementById('backgroundMusic');
+                
+                this.data = new PlayerData();
+                this.camera = new Camera(CANVAS_WIDTH, CANVAS_HEIGHT);
+                this.world = new InfiniteWorld();
+
+                this.state = GameState.MENU;
+                this.running = true;
+
+                this.player = null;
+                this.enemies = [];
+                this.projectiles = [];
+                this.buildings = [];
+                
+                this.lastTime = 0;
+                this.currentTime = 0;
+                
+                // --- Wave 核心属性 ---
+                this.wave = 1;
+                this.enemiesKilledThisWave = 0;
+                this.enemiesSpawnedThisWave = 0; // 新增: 本波已生成的敌人数量
+                this.enemiesToKillForNextWave = 100; // Wave 1 目标
+                this.isWaveTransition = false; // Wave 转换期间的暂停和提示
+                this.waveTransitionTimer = 0.0; 
+                this.baseMaxEnemies = 40; // 基础最大敌人数量 (屏幕上的软上限)
+                this.enemySpawnTimer = 0; // 持续生成计时器
+
+                this.input = {
+                    keys: {},
+                    mouse: { x: 0, y: 0, worldX: 0, worldY: 0, leftClick: false }
+                };
+
+                this.setupEventListeners();
+                this.updateMusicControlUI();
+                this.run();
+            }
+            
+            setState(newState) {
+                this.state = newState;
+                if (newState === GameState.GAME) {
+                    this.lastTime = performance.now();
+                    // 尝试在游戏开始时播放音乐 (绕过浏览器限制)
+                    this.bgm.play().catch(e => console.log("Music autoplay failed, user needs interaction."));
+                }
+            }
+            
+            toggleMusic() {
+                if (this.bgm.paused) {
+                    this.bgm.play().catch(e => console.error("无法播放音乐:", e));
+                } else {
+                    this.bgm.pause();
+                }
+                this.updateMusicControlUI();
+            }
+
+            updateMusicControlUI() {
+                if (this.bgm.paused) {
+                    this.musicControl.textContent = '🔇 音乐: 关闭';
+                    this.musicControl.style.backgroundColor = 'rgba(255, 50, 50, 0.9)';
+                } else {
+                    this.musicControl.textContent = '🔊 音乐: 开启';
+                    this.musicControl.style.backgroundColor = 'rgba(255, 215, 0, 0.9)';
+                }
+            }
+
+            setupEventListeners() {
+                document.addEventListener('keydown', (e) => {
+                    const key = e.key.toLowerCase();
+                    this.input.keys[key] = true;
+                    this.handleGameStateInput(key);
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    const key = e.key.toLowerCase();
+                    this.input.keys[key] = false;
+                });
+                
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) this.input.mouse.leftClick = true;
+                    if (this.state === GameState.MENU || this.state === GameState.GAME_OVER) {
+                        this.handleMenuClick(this.input.mouse.x, this.input.mouse.y);
+                    }
+                });
+
+                this.canvas.addEventListener('mouseup', (e) => {
+                    if (e.button === 0) this.input.mouse.leftClick = false;
+                });
+                
+                this.canvas.addEventListener('mousemove', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.input.mouse.x = e.clientX - rect.left;
+                    this.input.mouse.y = e.clientY - rect.top;
+                    
+                    if (this.camera) {
+                        this.input.mouse.worldX = this.input.mouse.x + this.camera.x;
+                        this.input.mouse.worldY = this.input.mouse.y + this.camera.y;
+                    }
+                });
+                
+                // 音乐控制按钮事件
+                this.musicControl.addEventListener('click', () => this.toggleMusic());
+            }
+            
+            handleGameStateInput(key) {
+                if (this.state === GameState.GAME_OVER) {
+                    if (key === 'r') this.newGame();
+                    if (key === 'escape') this.setState(GameState.MENU);
+                } else if (this.state === GameState.LEVEL_UP) {
+                    if (key === '1' || key === '2' || key === '3') {
+                        let upgradeType;
+                        if (key === '1') upgradeType = 'damage';
+                        else if (key === '2') upgradeType = 'health';
+                        else if (key === '3') upgradeType = 'speed';
+                        
+                        this.player.applyUpgrade(upgradeType);
+                    }
+                }
+            }
+            
+            handleMenuClick(mouseX, mouseY) {
+                if (this.state === GameState.MENU) {
+                    const startButton = { x: 550, y: 400, w: 300, h: 60 };
+                    if (mouseX > startButton.x && mouseX < startButton.x + startButton.w &&
+                        mouseY > startButton.y && mouseY < startButton.y + startButton.h) {
+                        this.newGame();
+                    }
+                }
+            }
+
+            newGame() {
+                this.player = new Player(0, 0, this.data);
+                this.enemies = [];
+                this.projectiles = [];
+                this.buildings = [];
+                this.player.score = 0;
+
+                // 重置 Wave 状态
+                this.wave = 1;
+                this.enemiesKilledThisWave = 0;
+                this.enemiesSpawnedThisWave = 0;
+                this.isWaveTransition = false;
+                this.waveTransitionTimer = 0.0;
+                this.world.chunks.clear();
+                
+                this.startNextWave(true); // 启动 Wave 1
+                this.setState(GameState.GAME);
+            }
+            
+            startNextWave(isInitial = false) {
+                if (!isInitial) {
+                    this.wave += 1;
+                }
+                
+                // --- Wave 目标计算 ---
+                // Wave 1: 100, Wave 2: 150, Wave 3: 200, ...
+                this.enemiesToKillForNextWave = 100 + (this.wave - 1) * 50; 
+                this.enemiesKilledThisWave = 0;
+                this.enemiesSpawnedThisWave = 0;
+                
+                // Wave 转换提示
+                this.isWaveTransition = true;
+                this.waveTransitionTimer = 3.0; // 3秒过渡时间
+                
+                // 1. 立即生成密集普通敌人 (达成目标的第一部分)
+                this.spawnWaveInitialEnemies(this.enemiesToKillForNextWave);
+
+                // 2. 只有 Wave 2 及以后才生成 Boss
+                if (this.wave >= 2) {
+                    this.spawnWaveBosses(this.wave); // 生成 X 个 Boss
+                }
+            }
+            
+            /**
+             * 在 Wave 开始时，在玩家周围一定范围内密集生成所有普通敌人目标。
+             * @param {number} count 要生成的敌人总数
+             */
+            spawnWaveInitialEnemies(count) {
+                const rng = new SeededRNG(performance.now());
+                const spawnRadiusMin = 300; // 避免出生点重叠
+                const spawnRadiusMax = 1500; // 初始散布范围
+
+                for (let i = 0; i < count; i++) {
+                    const angle = rng.randFloat(0, Math.PI * 2);
+                    const distance = rng.randFloat(spawnRadiusMin, spawnRadiusMax);
+                    
+                    const spawnX = this.player.x + Math.cos(angle) * distance;
+                    const spawnY = this.player.y + Math.sin(angle) * distance;
+                    
+                    let enemy;
+                    // 敌人类刷新权重: 50% Shooter, 50% Melee
+                    const choice = rng.randFloat(0, 1);
+                    
+                    if (choice < 0.5) {
+                        enemy = new NormalShooter(spawnX, spawnY);
+                    } else {
+                        enemy = new FastMeleeEnemy(spawnX, spawnY);
+                    }
+                    this.enemies.push(enemy);
+                    this.enemiesSpawnedThisWave += 1;
+                }
+            }
+
+            spawnWaveBosses(numBosses) {
+                const rng = new SeededRNG(performance.now() + 1); // Use slightly different seed
+                const spawnDistance = 2000; // 确保 Boss 足够远
+
+                for (let i = 0; i < numBosses; i++) {
+                    const angle = rng.randFloat(0, Math.PI * 2);
+                    
+                    const spawnX = this.player.x + Math.cos(angle) * spawnDistance;
+                    const spawnY = this.player.y + Math.sin(angle) * spawnDistance;
+                    
+                    const boss = new BossEnemy(spawnX, spawnY);
+                    this.enemies.push(boss);
+                }
+            }
+
+            update(dt) {
+                this.currentTime = performance.now() / 1000.0;
+                
+                if (this.state !== GameState.GAME) return;
+                
+                // 1. Wave 转换计时器 (暂停游戏逻辑)
+                if (this.isWaveTransition) {
+                    this.waveTransitionTimer -= dt;
+                    if (this.waveTransitionTimer <= 0) {
+                        this.isWaveTransition = false;
+                    }
+                    // 转换期间只允许玩家移动和释放冲击波
+                    this.player.handleInput(this.input, dt);
+                    this.player.update(dt);
+                    this.camera.update(this.player, dt);
+                    return; 
+                }
+
+                // 2. Wave 推进检查
+                const activeBosses = this.enemies.filter(e => e instanceof BossEnemy).length;
+                if (this.enemiesKilledThisWave >= this.enemiesToKillForNextWave && activeBosses === 0) {
+                    this.startNextWave();
+                }
+
+                // 3. 玩家更新
+                this.player.handleInput(this.input, dt);
+                this.player.update(dt);
+                
+                // 4. 世界和建筑加载
+                const worldContent = this.world.getVisibleContent(this.player);
+                this.buildings = worldContent.buildings;
+                
+                // 5. 敌人持续生成 (软上限控制)
+                this.enemySpawnTimer += dt;
+                
+                // 难度缩放: Wave 越高，最大敌人数量越多，生成越快
+                const maxEnemyScale = 1 + this.wave * 0.15; 
+                const currentMaxEnemies = Math.min(250, Math.floor(this.baseMaxEnemies * maxEnemyScale)); 
+                const continuousSpawnRate = 0.5; // 持续生成间隔 (秒)
+                
+                const currentNormalEnemies = this.enemies.filter(e => !(e instanceof BossEnemy)).length;
+
+                // 只有当场上普通敌人数量低于软上限，且已生成的敌人总数未达到本波目标时，才持续生成
+                if (currentNormalEnemies < currentMaxEnemies && this.enemiesSpawnedThisWave < this.enemiesToKillForNextWave && this.enemySpawnTimer > continuousSpawnRate) {
+                    this.spawnSingleEnemy(worldContent.chunkKeys);
+                    this.enemiesSpawnedThisWave += 1;
+                    this.enemySpawnTimer = 0;
+                }
+
+                // 6. 实体和投射物更新
+                this.enemies.forEach(e => e.update(dt, this.currentTime, this.player));
+                this.projectiles.forEach(p => p.update(dt));
+
+                // 7. 战斗和碰撞检测
+                this.handleCollisions(dt);
+                
+                // 8. 过滤已死亡/超时的实体
+                this.projectiles = this.projectiles.filter(p => p.isAlive);
+                this.enemies = this.enemies.filter(e => e.isAlive);
+                this.buildings = this.buildings.filter(b => b.isAlive);
+
+                // 9. 玩家攻击
+                if (this.input.mouse.leftClick) {
+                    const newProjectile = this.player.attack(this.currentTime, this.input.mouse.worldX, this.input.mouse.worldY);
+                    if (newProjectile) {
+                        this.projectiles.push(newProjectile);
+                    }
+                }
+                
+                // 10. 摄像机跟随
+                this.camera.update(this.player, dt);
+                
+                // 11. 死亡检查
+                if (!this.player.isAlive) {
+                    this.data.updateHighScore(Math.floor(this.player.score));
+                    const coinsGained = Math.floor(this.player.score / 2000);
+                    this.data.addCoins(coinsGained);
+                    this.setState(GameState.GAME_OVER);
+                }
+            }
+            
+            /**
+             * 在可见区域外随机生成单个敌人 (用于持续补充)
+             */
+            spawnSingleEnemy(chunkKeys) {
+                if (chunkKeys.length === 0) return;
+                
+                const rng = new SeededRNG(performance.now() + 2); // Use slightly different seed
+                const targetChunkCoords = rng.choice(chunkKeys);
+                const bounds = this.world.getChunkWorldBounds(targetChunkCoords.x, targetChunkCoords.y);
+                
+                let spawnX = rng.randFloat(bounds.x, bounds.x + bounds.width);
+                let spawnY = rng.randFloat(bounds.y, bounds.y + bounds.height);
+
+                const screenDist = Math.max(CANVAS_WIDTH, CANVAS_HEIGHT) / 2 + 100;
+                const distToPlayer = Math.sqrt((spawnX - this.player.x) ** 2 + (spawnY - this.player.y) ** 2);
+                
+                // 确保生成在屏幕外
+                if (distToPlayer < screenDist) {
+                    const angle = Math.atan2(spawnY - this.player.y, spawnX - this.player.x);
+                    spawnX = this.player.x + Math.cos(angle) * screenDist;
+                    spawnY = this.player.y + Math.sin(angle) * screenDist;
+                }
+                
+                let enemy;
+                // 敌人类刷新权重: 50% Shooter, 50% Melee
+                const choice = rng.randFloat(0, 1);
+                
+                if (choice < 0.5) {
+                    enemy = new NormalShooter(spawnX, spawnY);
+                } else {
+                    enemy = new FastMeleeEnemy(spawnX, spawnY);
+                }
+
+                this.enemies.push(enemy);
+            }
+            
+            handleCollisions(dt) {
+                // --- E 键冲击波效果 ---
+                if (this.player.isShockwaving && this.player.shockwaveTimer >= this.player.shockwaveDuration - dt) {
+                    const shockwaveDamage = this.player.shockwaveDamage * this.player.damageMultiplier;
+                    const knockbackForce = 1500;
+                    
+                    this.enemies.forEach(e => {
+                        if (e.isAlive) {
+                            const dx = e.x - this.player.x;
+                            const dy = e.y - this.player.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            
+                            if (distance < this.player.shockwaveRadius) {
+                                e.takeDamage(shockwaveDamage);
+                                const angle = Math.atan2(dy, dx);
+                                e.applyKnockback(angle, knockbackForce);
+                            }
+                        }
+                    });
+                }
+                
+                // --- 玩家 vs 建筑 ---
+                this.buildings.forEach(b => {
+                    CollisionManager.checkAndResolve(this.player, b);
+                });
+
+                // --- 投射物 vs 实体/建筑 ---
+                this.projectiles.forEach(p => {
+                    if (!p.isAlive) return;
+                    
+                    if (p.type === 'player') {
+                        this.enemies.forEach(e => {
+                            if (e.isAlive && CollisionManager.checkCircleCollision(p, e)) {
+                                e.takeDamage(p.damage);
+                                p.isAlive = false;
+                            }
+                        });
+                        
+                        this.buildings.forEach(b => {
+                            if (b.isDestroyable && p.x > b.x && p.x < b.x + b.width && p.y > b.y && p.y < b.y + b.height) {
+                                b.takeDamage(p.damage);
+                                p.isAlive = false;
+                            }
+                        });
+                        
+                    } else if (p.type === 'enemy') {
+                        if (this.player.isAlive && CollisionManager.checkCircleCollision(p, this.player)) {
+                            this.player.takeDamage(p.damage);
+                            p.isAlive = false;
+                        }
+                    }
+                });
+                
+                // --- 敌人 vs 玩家 (接触伤害) ---
+                this.enemies.forEach(e => {
+                    if (e.isAlive && CollisionManager.checkCircleCollision(e, this.player)) {
+                        if (e instanceof FastMeleeEnemy) {
+                            this.player.takeDamage(e.damage * dt * 5); 
+                        } else {
+                             this.player.takeDamage(e.damage * dt);
+                        }
+                       
+                    }
+                });
+            }
+
+            // --- 画面渲染 ---
+
+            draw() {
+                this.ctx.fillStyle = BACKGROUND_COLOR;
+                this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                
+                const offset = { x: this.camera.x, y: this.camera.y };
+                
+                this.drawGrid();
+
+                if (this.state === GameState.GAME || this.state === GameState.LEVEL_UP || this.state === GameState.GAME_OVER) {
+                    const viewport = this.camera.getViewport();
+                    const inView = (entity) => entity.x > viewport.left && entity.x < viewport.right && entity.y > viewport.top && entity.y < viewport.bottom;
+
+                    this.buildings.filter(inView).forEach(b => b.draw(this.ctx, offset));
+                    this.projectiles.filter(inView).forEach(p => p.draw(this.ctx, offset));
+                    this.enemies.filter(inView).forEach(e => e.draw(this.ctx, offset));
+                    
+                    this.player.draw(this.ctx, offset);
+
+                    this.drawHUD();
+                }
+
+                if (this.state === GameState.MENU) this.drawMenu();
+                else if (this.state === GameState.LEVEL_UP) this.drawLevelUpScreen();
+                else if (this.state === GameState.GAME_OVER) this.drawGameOverScreen();
+                
+                // 绘制 Wave 转换提示
+                if (this.isWaveTransition) this.drawWaveTransition();
+            }
+            
+            drawGrid() {
+                this.ctx.strokeStyle = GRID_COLOR;
+                this.ctx.lineWidth = 1;
+                const step = 50;
+                
+                const startX = -this.camera.x % step;
+                const startY = -this.camera.y % step;
+
+                for (let x = startX; x < CANVAS_WIDTH; x += step) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, CANVAS_HEIGHT);
+                    this.ctx.stroke();
+                }
+                
+                for (let y = startY; y < CANVAS_HEIGHT; y += step) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(CANVAS_WIDTH, y);
+                    this.ctx.stroke();
+                }
+            }
+
+            drawText(text, x, y, size, color = 'white', font = 'Arial', align = 'left') {
+                this.ctx.font = `${size}px ${font}`;
+                this.ctx.fillStyle = color;
+                this.ctx.textAlign = align;
+                this.ctx.fillText(text, x, y);
+            }
+
+            drawWaveTransition() {
+                const centerX = CANVAS_WIDTH / 2;
+                const centerY = CANVAS_HEIGHT / 2;
+                
+                // 渐变透明的背景遮罩
+                const alpha = Math.min(0.8, Math.abs(this.waveTransitionTimer - 1.5) / 1.5);
+                this.ctx.fillStyle = `rgba(10, 10, 30, ${alpha})`;
+                this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                
+                // 文本闪烁效果
+                const flash = Math.abs(Math.sin(this.currentTime * 5));
+                
+                this.drawText(`WAVE ${this.wave}`, centerX, centerY - 50, 120, '#FFD700', 'Impact', 'center');
+                
+                if (this.wave >= 2) {
+                    this.drawText(`生成 ${this.wave} 个 Boss! 准备好密集敌人冲击!`, centerX, centerY + 50, 48, `rgba(255, 50, 50, ${flash})`, 'Arial', 'center');
+                } else {
+                    this.drawText(`敌人正在靠近! 密集来袭!`, centerX, centerY + 50, 48, `rgba(0, 255, 0, ${flash})`, 'Arial', 'center');
+                }
+            }
+            
+            drawMenu() {
+                const centerX = CANVAS_WIDTH / 2;
+                
+                this.drawText("DANTAO", centerX, 200, 90, '#FFD700', 'Impact', 'center');
+                this.drawText("无尽 Wave 生存模式", centerX, 270, 40, 'white', 'Arial', 'center');
+
+                const startButton = { x: 550, y: 400, w: 300, h: 60 };
+                this.ctx.fillStyle = '#4650a3';
+                this.ctx.fillRect(startButton.x, startButton.y, startButton.w, startButton.h);
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(startButton.x, startButton.y, startButton.w, startButton.h);
+                this.drawText("开始游戏", centerX, 445, 36, 'white', 'Arial', 'center');
+                
+                this.drawText(`最高分: ${this.data.highScore}`, 100, CANVAS_HEIGHT - 30, 24, 'white');
+                this.drawText(`金币: ${this.data.coins}`, centerX, CANVAS_HEIGHT - 30, 24, '#FFD700', 'Arial', 'center');
+                this.drawText(`当前皮肤: ${this.data.currentSkin.toUpperCase()}`, CANVAS_WIDTH - 100, CANVAS_HEIGHT - 30, 24, 'white', 'Arial', 'right');
+            }
+
+            drawHUD() {
+                const p = this.player;
+                const hudX = 20;
+                const hudY = 20;
+                
+                // --- HP Bar ---
+                const hpBarW = 350;
+                const hpBarH = 35;
+                const hpRatio = p.health / p.maxHealth;
+                let hpColor = hpRatio > 0.6 ? 'rgb(50, 255, 50)' : (hpRatio > 0.3 ? 'rgb(255, 200, 50)' : 'rgb(255, 50, 50)');
+
+                this.ctx.fillStyle = 'rgb(100, 30, 30)';
+                this.ctx.fillRect(hudX, hudY, hpBarW, hpBarH);
+                this.ctx.fillStyle = hpColor;
+                this.ctx.fillRect(hudX, hudY, hpBarW * hpRatio, hpBarH);
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(hudX, hudY, hpBarW, hpBarH);
+                this.drawText(`HP: ${Math.floor(p.health)}/${p.maxHealth}`, hudX + 10, hudY + 25, 24, 'white');
+
+                // --- EXP Bar ---
+                const expBarW = 350;
+                const expBarH = 25;
+                const expRatio = p.exp / p.expToNextLevel;
+
+                this.ctx.fillStyle = 'rgb(30, 60, 100)';
+                this.ctx.fillRect(hudX, hudY + hpBarH + 5, expBarW, expBarH);
+                this.ctx.fillStyle = 'rgb(100, 200, 255)';
+                this.ctx.fillRect(hudX, hudY + hpBarH + 5, expBarW * expRatio, expBarH);
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(hudX, hudY + hpBarH + 5, expBarW, expBarH);
+                this.drawText(`Lv.${p.level} - ${p.exp}/${p.expToNextLevel} XP`, hudX + 10, hudY + hpBarH + 22, 20, 'white');
+                
+                // --- Wave & Kill Progress ---
+                const waveInfoX = CANVAS_WIDTH / 2;
+                const activeBosses = this.enemies.filter(e => e instanceof BossEnemy).length;
+                
+                this.drawText(`WAVE ${this.wave}`, waveInfoX, hudY + 30, 48, '#FFD700', 'Impact', 'center');
+                
+                const killText = `击杀目标: ${this.enemiesKilledThisWave}/${this.enemiesToKillForNextWave}`;
+                const bossText = `Boss: ${activeBosses} 存活`;
+                
+                this.drawText(killText, waveInfoX, hudY + 65, 24, 'white', 'Arial', 'center');
+                this.drawText(bossText, waveInfoX, hudY + 90, 24, activeBosses > 0 ? 'rgb(255, 50, 50)' : 'rgb(50, 255, 50)', 'Arial', 'center');
+
+                // --- Score ---
+                const scoreX = CANVAS_WIDTH - 20;
+                this.drawText(`Score: ${Math.floor(p.score)}`, scoreX, hudY + 30, 32, 'white', 'Arial', 'right');
+                
+                // --- E Skill ---
+                const skillX = CANVAS_WIDTH - 150;
+                const skillY = CANVAS_HEIGHT - 50;
+                const skillSize = 70;
+                
+                const skillRatio = Math.max(0, p.shockwaveCooldown / p.shockwaveMaxCooldown);
+                
+                this.ctx.fillStyle = 'rgba(50, 50, 50, 0.5)';
+                this.ctx.fillRect(skillX - skillSize / 2, skillY - skillSize / 2, skillSize, skillSize);
+
+                if (skillRatio > 0) {
+                    this.ctx.fillStyle = 'rgba(20, 20, 40, 0.7)';
+                    this.ctx.fillRect(skillX - skillSize / 2, skillY - skillSize / 2, skillSize, skillSize * skillRatio);
+                    this.drawText(Math.ceil(p.shockwaveCooldown).toString(), skillX, skillY + 10, 40, '#FFD700', 'Impact', 'center');
+                } else {
+                    this.drawText("E", skillX, skillY + 10, 40, 'rgb(100, 200, 255)', 'Impact', 'center');
+                }
+                
+                this.ctx.strokeStyle = p.shockwaveCooldown > 0 ? 'rgb(100, 100, 100)' : 'rgb(100, 200, 255)';
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeRect(skillX - skillSize / 2, skillY - skillSize / 2, skillSize, skillSize);
+                
+                this.drawText("冲击波 (E)", skillX, skillY + skillSize / 2 + 25, 20, 'white', 'Arial', 'center');
+            }
+
+            drawLevelUpScreen() {
+                const centerX = CANVAS_WIDTH / 2;
+                const centerY = CANVAS_HEIGHT / 2;
+                
+                this.ctx.fillStyle = 'rgba(10, 10, 30, 0.95)';
+                this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                
+                this.drawText("★ 升 级! ★", centerX, centerY - 250, 90, '#FFD700', 'Impact', 'center');
+                this.drawText(`等级 ${this.player.level}!`, centerX, centerY - 180, 50, 'white', 'Arial', 'center');
+                this.drawText("选择一个升级:", centerX, centerY - 100, 36, 'white', 'Arial', 'center');
+
+                const options = [
+                    { key: '1', icon: '⚔', name: "增加伤害", effect: "+25% 攻击伤害", color: 'rgb(255, 100, 100)' },
+                    { key: '2', icon: '❤', name: "增加生命", effect: "+30 最大生命值", color: 'rgb(255, 50, 150)' },
+                    { key: '3', icon: '➤', name: "移动速度", effect: "+15% 移动速度", color: 'rgb(100, 200, 255)' }
+                ];
+                
+                let startY = centerY - 30;
+                const cardW = 400;
+                const cardH = 100;
+                
+                options.forEach((opt, index) => {
+                    const y = startY + index * (cardH + 20);
+                    
+                    this.ctx.fillStyle = opt.color;
+                    this.ctx.globalAlpha = 0.4;
+                    this.ctx.fillRect(centerX - cardW / 2, y, cardW, cardH);
+                    this.ctx.globalAlpha = 1.0;
+                    this.ctx.strokeStyle = 'white';
+                    this.ctx.lineWidth = 4;
+                    this.ctx.strokeRect(centerX - cardW / 2, y, cardW, cardH);
+                    
+                    this.drawText(`[${opt.key}]`, centerX - cardW / 2 + 30, y + 60, 48, '#FFD700', 'Arial', 'left');
+                    this.drawText(opt.icon, centerX - 50, y + 40, 36, 'white', 'Arial', 'left');
+                    this.drawText(opt.name, centerX - 50, y + 75, 30, 'white', 'Arial', 'left');
+                    this.drawText(opt.effect, centerX + 100, y + 60, 24, 'lightgray', 'Arial', 'center');
+                });
+                
+                this.drawText("按 1, 2, 或 3 选择升级", centerX, CANVAS_HEIGHT - 50, 30, 'white', 'Arial', 'center');
+            }
+
+            drawGameOverScreen() {
+                const centerX = CANVAS_WIDTH / 2;
+                const centerY = CANVAS_HEIGHT / 2;
+                
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                
+                this.drawText("游戏结束", centerX, centerY - 150, 100, 'rgb(255, 50, 50)', 'Impact', 'center');
+                
+                this.drawText(`得分: ${Math.floor(this.player.score)}`, centerX, centerY - 20, 48, 'white', 'Arial', 'center');
+                this.drawText(`最高分: ${this.data.highScore}`, centerX, centerY + 40, 36, '#FFD700', 'Arial', 'center');
+
+                const coinsGained = Math.floor(this.player.score / 2000);
+                this.drawText(`本局达到 Wave ${this.wave}`, centerX, centerY + 100, 40, 'rgb(255, 255, 0)', 'Arial', 'center');
+                this.drawText(`获得金币: +${coinsGained}`, centerX, centerY + 150, 32, 'rgb(0, 200, 0)', 'Arial', 'center');
+
+                this.drawText("按 R 重新开始 | 按 ESC 返回菜单", centerX, CANVAS_HEIGHT - 100, 30, 'lightgray', 'Arial', 'center');
+            }
+
+            run() {
+                const loop = (currentTime) => {
+                    if (!this.running) return;
+
+                    const dt = (currentTime - this.lastTime) / 1000.0 || 0;
+                    this.lastTime = currentTime;
+
+                    this.update(dt);
+                    this.draw();
+
+                    requestAnimationFrame(loop);
+                };
+                requestAnimationFrame(loop);
+            }
+        }
+
+        window.onload = () => {
+            gameInstance = new Game();
+        };
+
+    </script>
 </body>
 </html>
