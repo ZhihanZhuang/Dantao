@@ -1280,7 +1280,7 @@
       this.waveTransitionTimer = 3.0; // 3秒过渡时间
 
       // 1. 立即生成密集普通敌人 (达成目标的第一部分)
-      this.spawnWaveInitialEnemies(this.enemiesToKillForNextWave);
+      this.spawnWaveInitialEnemies(this.enemiesToKillForNextWave + 20);
 
       // 2. 只有 Wave 2 及以后才生成 Boss
       if (this.wave >= 2) {
