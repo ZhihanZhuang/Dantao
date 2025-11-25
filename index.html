@@ -496,6 +496,11 @@
       // 击退
       this.knockbackVelX = 0;
       this.knockbackVelY = 0;
+      
+      // 减速
+      this.isSlowed = false;
+      this.slowTimer = 0;
+      this.slowDuration = 2.0; // 默认减速2秒
     }
 
     // --- Q 技能 (护盾) ---
@@ -537,6 +542,13 @@
       if (this.isShielded) return; 
       this.knockbackVelX = Math.cos(angle) * force;
       this.knockbackVelY = Math.sin(angle) * force;
+    }
+
+    // 由敌人调用的减速
+    applySlow(duration) {
+        if (this.isShielded) return; // 护盾抵挡减速
+        this.isSlowed = true;
+        this.slowTimer = duration;
     }
 
     gainExp(amount) {
@@ -616,7 +628,13 @@
     handleInput(input, dt) {
       let velX = 0;
       let velY = 0;
-      const currentSpeed = this.baseSpeed * this.speedMultiplier;
+      
+      // 减速逻辑
+      let speedMod = this.speedMultiplier;
+      if (this.isSlowed) {
+          speedMod *= 0.5; // 50% 减速
+      }
+      const currentSpeed = this.baseSpeed * speedMod;
 
       if (input.keys['w']) velY -= 1;
       if (input.keys['s']) velY += 1;
@@ -672,6 +690,14 @@
           this.isInvincible = false;
         }
       }
+
+      // Slow effect update
+      if (this.isSlowed) {
+          this.slowTimer -= dt;
+          if (this.slowTimer <= 0) {
+              this.isSlowed = false;
+          }
+      }
 
       // E Skill Cooldown/Timer update
       if (this.shockwaveCooldown > 0) {
@@ -757,10 +783,14 @@
       }
 
       const isFlashing = this.isInvincible && (Math.floor(this.invincibilityTimer * 10) % 2 === 0);
+      let playerColor = this.data.getSkinColor();
+      if (this.isSlowed) {
+          playerColor = 'rgb(100, 100, 255)'; // 减速时显示为蓝色
+      }
 
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = isFlashing ? 'white' : this.data.getSkinColor();
+      ctx.fillStyle = isFlashing ? 'white' : playerColor;
       ctx.fill();
 
       ctx.strokeStyle = 'black';
@@ -1187,8 +1217,8 @@
       this.x += Math.cos(angle) * this.speed * dt;
       this.y += Math.sin(angle) * this.speed * dt;
 
-      // 只有在显形后才能攻击
-      if (this.isVisible && distance < this.attackRange && currentTime >= this.lastAttackTime + this.attackCooldown) {
+      // *** 更改：现在隐形时也能攻击 ***
+      if (distance < this.attackRange && currentTime >= this.lastAttackTime + this.attackCooldown) {
         this.lastAttackTime = currentTime;
         
         if (!this.hasUsedShockwave) {
@@ -1234,6 +1264,116 @@
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      this.drawHealthBar(ctx, screenPos);
+    }
+  }
+
+  /** 新增: 深蓝Boss */
+  class DeepBlueBoss extends EnemyBase {
+    constructor(x, y) {
+      super();
+      this.x = x;
+      this.y = y;
+      this.radius = 80; // 更大
+      this.maxHealth = 800 + gameInstance.wave * 250; // 更肉
+      this.health = this.maxHealth;
+      this.speed = 40; // 稍慢
+      this.damage = 20; // 冲击波伤害
+      this.expValue = 400;
+      this.color = 'rgb(0, 50, 150)'; // 深蓝色
+
+      this.shockwaveCooldown = 5.0; // 5秒CD
+      this.lastShockwaveTime = 0;
+      this.shockwaveRadius = 600; // 范围大
+
+      // 视觉效果
+      this.isShockwaving = false;
+      this.shockwaveTimer = 0.0;
+      this.shockwaveDuration = 0.3;
+    }
+
+    takeDamage(damage) {
+      this.health -= damage;
+      if (this.health <= 0) {
+        this.isAlive = false;
+        gameInstance.player.gainExp(this.expValue);
+        gameInstance.player.score += this.expValue * 5;
+        return true;
+      }
+      return false;
+    }
+
+    update(dt, currentTime, target) {
+      if (!this.isAlive) return;
+
+      this.updateMovement(dt, this.speed);
+      if (this.knockbackVelX !== 0 || this.knockbackVelY !== 0) return;
+
+      // 持续追踪
+      const dx = target.x - this.x;
+      const dy = target.y - this.y;
+      const angle = Math.atan2(dy, dx);
+      this.x += Math.cos(angle) * this.speed * dt;
+      this.y += Math.sin(angle) * this.speed * dt;
+
+      // 5秒冲击波
+      if (currentTime >= this.lastShockwaveTime + this.shockwaveCooldown) {
+        this.lastShockwaveTime = currentTime;
+        this.doShockwave(target);
+      }
+
+      // 更新冲击波视觉
+      if (this.isShockwaving) {
+        this.shockwaveTimer -= dt;
+        if (this.shockwaveTimer <= 0) {
+          this.isShockwaving = false;
+        }
+      }
+    }
+
+    doShockwave(target) {
+        this.isShockwaving = true;
+        this.shockwaveTimer = this.shockwaveDuration;
+
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // 检查玩家是否在范围内
+        if (distance < this.shockwaveRadius) {
+            const angle = Math.atan2(dy, dx);
+            // 施加所有效果
+            target.takeDamage(this.damage);
+            target.applyKnockback(angle, 1000); // 1000 强力击退
+            target.applySlow(2.0); // 2 秒减速
+        }
+    }
+
+    draw(ctx, offset) {
+      const screenPos = gameInstance.camera.worldToScreen(this.x, this.y);
+
+      // 绘制冲击波视觉
+      if (this.isShockwaving) {
+          const progress = 1 - (this.shockwaveTimer / this.shockwaveDuration);
+          const currentRadius = progress * this.shockwaveRadius;
+          const alpha = 0.5 - progress * 0.5;
+          ctx.beginPath();
+          ctx.arc(screenPos.x, screenPos.y, currentRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(100, 200, 255, ${alpha})`; // 浅蓝色
+          ctx.lineWidth = 15 + (1 - progress) * 20;
+          ctx.stroke();
+      }
+
+      // 绘制本体
+      ctx.beginPath();
+      ctx.arc(screenPos.x, screenPos.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgb(100, 200, 255)'; // 浅蓝色描边
+      ctx.lineWidth = 5;
+      ctx.stroke();
+
+      // 绘制血条
       this.drawHealthBar(ctx, screenPos);
     }
   }
@@ -1535,7 +1675,13 @@
         const spawnX = this.player.x + Math.cos(angle) * spawnDistance;
         const spawnY = this.player.y + Math.sin(angle) * spawnDistance;
 
-        const boss = new BossEnemy(spawnX, spawnY);
+        let boss;
+        // *** 更改：交替生成Boss ***
+        if (this.wave % 2 === 0) { // 偶数波 (2, 4, 6...)
+            boss = new BossEnemy(spawnX, spawnY); // 原版紫色Boss
+        } else { // 奇数波 (3, 5, 7...)
+            boss = new DeepBlueBoss(spawnX, spawnY); // 新版蓝色Boss
+        }
         this.enemies.push(boss);
       }
     }
@@ -1559,7 +1705,8 @@
       }
 
       // 2. Wave 推进检查
-      const activeBosses = this.enemies.filter(e => e instanceof BossEnemy).length;
+      // *** 更改：现在检查所有Boss类型 ***
+      const activeBosses = this.enemies.filter(e => e instanceof BossEnemy || e instanceof DeepBlueBoss).length;
       if (this.enemiesKilledThisWave >= this.enemiesToKillForNextWave && activeBosses === 0) {
         this.startNextWave();
       }
@@ -1580,7 +1727,8 @@
       const currentMaxEnemies = Math.min(250, Math.floor(this.baseMaxEnemies * maxEnemyScale));
       const continuousSpawnRate = 0.5; // 持续生成间隔 (秒)
 
-      const currentNormalEnemies = this.enemies.filter(e => !(e instanceof BossEnemy)).length;
+      // *** 更改：检查所有Boss类型 ***
+      const currentNormalEnemies = this.enemies.filter(e => !(e instanceof BossEnemy || e instanceof DeepBlueBoss)).length;
 
       // 只有当场上普通敌人数量低于软上限，且已生成的敌人总数未达到本波目标时，才持续生成
       if (currentNormalEnemies < currentMaxEnemies && this.enemiesSpawnedThisWave < this.enemiesToKillForNextWave && this.enemySpawnTimer > continuousSpawnRate) {
@@ -1718,8 +1866,8 @@
         if (e.isAlive && CollisionManager.checkCircleCollision(e, this.player)) {
           if (e instanceof FastMeleeEnemy) {
             this.player.takeDamage(e.damage * dt * 5);
-          } else if (e instanceof InvisibleEnemy) {
-            // 隐形敌人不造成接触伤害，只通过射击/冲击波
+          } else if (e instanceof InvisibleEnemy || e instanceof DeepBlueBoss) {
+            // 隐形敌人和新Boss不造成接触伤害
           } else {
             this.player.takeDamage(e.damage * dt);
           }
@@ -1807,7 +1955,8 @@
       this.drawText(`WAVE ${this.wave}`, centerX, centerY - 30, baseSize, '#FFD700', 'Impact', 'center');
 
       if (this.wave >= 2) {
-        this.drawText(`生成 ${this.wave} 个 Boss!`, centerX, centerY + 30, baseSize * 0.4, `rgba(255, 50, 50, ${flash})`, 'Arial', 'center');
+        const bossName = (this.wave % 2 === 0) ? "Boss" : "深蓝主宰";
+        this.drawText(`生成 ${bossName}!`, centerX, centerY + 30, baseSize * 0.4, `rgba(255, 50, 50, ${flash})`, 'Arial', 'center');
       } else {
         this.drawText(`敌人正在靠近!`, centerX, centerY + 30, baseSize * 0.4, `rgba(0, 255, 0, ${flash})`, 'Arial', 'center');
       }
@@ -1902,7 +2051,7 @@
 
       // --- Wave & Kill Progress ---
       const waveInfoX = CANVAS_WIDTH / 2;
-      const activeBosses = this.enemies.filter(e => e instanceof BossEnemy).length;
+      const activeBosses = this.enemies.filter(e => e instanceof BossEnemy || e instanceof DeepBlueBoss).length;
 
       this.drawText(`WAVE ${this.wave}`, waveInfoX, hudY + largeTextSize * 0.8, largeTextSize, '#FFD700', 'Impact', 'center');
 
@@ -1925,7 +2074,7 @@
 
       const skillSize = Math.min(CANVAS_WIDTH * 0.05, 70);
       const skillGap = skillSize * 1.4;
-      const skillBaseX = CANVAS_WIDTH - skillGap * 1.5;
+      const skillBaseX = CANVAS_WIDTH - skillGap * 2; // 向左移动以容纳3个技能
       const skillY = CANVAS_HEIGHT - (skillSize * 0.7);
 
 
